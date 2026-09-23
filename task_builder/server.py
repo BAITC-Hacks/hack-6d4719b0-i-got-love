@@ -9,13 +9,17 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 if (Path(__file__).resolve().parents[1] / "backend" / "db.py").exists():
     from backend import db as shared_db
 else:
     shared_db = None
+if (Path(__file__).resolve().parents[1] / "backend" / "rating.py").exists():
+    from backend import rating as shared_rating
+else:
+    shared_rating = None
 
 
 TEXT_FIELDS = (
@@ -40,6 +44,7 @@ success_criteria, contact, interaction_format.
 """
 
 app = FastAPI(title="Task builder API")
+router = APIRouter()
 
 
 class DescriptionInput(BaseModel):
@@ -138,7 +143,7 @@ def external_questions(description: str) -> list[dict[str, str]]:
     return validate_questions(json.loads(content))
 
 
-@app.post("/api/task-builder/questions")
+@router.post("/api/task-builder/questions")
 def questions(request: DescriptionInput) -> dict:
     description = request.description.strip()
     if not description:
@@ -154,7 +159,7 @@ def questions(request: DescriptionInput) -> dict:
         }
 
 
-@app.post("/api/task-builder/drafts", status_code=201)
+@router.post("/api/task-builder/drafts", status_code=201)
 def create_draft(request: DraftInput) -> dict:
     description = request.description.strip()
     if not description:
@@ -176,13 +181,13 @@ def create_draft(request: DraftInput) -> dict:
         return get_task(connection, cursor.lastrowid)
 
 
-@app.get("/api/task-builder/tasks/{task_id}")
+@router.get("/api/task-builder/tasks/{task_id}")
 def read_task(task_id: int) -> dict:
     with closing(connect()) as connection, connection:
         return get_task(connection, task_id)
 
 
-@app.put("/api/task-builder/tasks/{task_id}")
+@router.put("/api/task-builder/tasks/{task_id}")
 def edit_task(task_id: int, card: CardInput) -> dict:
     with closing(connect()) as connection, connection:
         current = get_task(connection, task_id)
@@ -190,13 +195,13 @@ def edit_task(task_id: int, card: CardInput) -> dict:
             raise HTTPException(status_code=409, detail="Опубликованную задачу нельзя менять в конструкторе")
         values = card.model_dump()
         connection.execute(
-            f"UPDATE tasks SET {', '.join(field + ' = ?' for field in TEXT_FIELDS)}, confirmed_at = NULL WHERE id = ?",
+            f"UPDATE tasks SET {', '.join(field + ' = ?' for field in TEXT_FIELDS)}, confirmed_at = NULL, score = 0 WHERE id = ?",
             tuple(values[field].strip() for field in TEXT_FIELDS) + (task_id,),
         )
         return get_task(connection, task_id)
 
 
-@app.post("/api/task-builder/tasks/{task_id}/confirm")
+@router.post("/api/task-builder/tasks/{task_id}/confirm")
 def confirm_task(task_id: int) -> dict:
     with closing(connect()) as connection, connection:
         current = get_task(connection, task_id)
@@ -204,14 +209,17 @@ def confirm_task(task_id: int) -> dict:
             raise HTTPException(status_code=409, detail="Задача уже опубликована")
         if not current["title"].strip():
             raise HTTPException(status_code=422, detail="Укажите название задачи")
-        connection.execute(
-            "UPDATE tasks SET confirmed_at = ? WHERE id = ?",
-            (datetime.now(timezone.utc).isoformat(), task_id),
-        )
+        if shared_rating is not None and shared_db is not None and "TASK_BUILDER_DB_PATH" not in os.environ:
+            shared_rating.confirm_task(connection, task_id, {})
+        else:
+            connection.execute(
+                "UPDATE tasks SET confirmed_at = ? WHERE id = ?",
+                (datetime.now(timezone.utc).isoformat(), task_id),
+            )
         return get_task(connection, task_id)
 
 
-@app.post("/api/task-builder/tasks/{task_id}/publish")
+@router.post("/api/task-builder/tasks/{task_id}/publish")
 def publish_task(task_id: int) -> dict:
     with closing(connect()) as connection, connection:
         current = get_task(connection, task_id)
@@ -219,3 +227,6 @@ def publish_task(task_id: int) -> dict:
             raise HTTPException(status_code=409, detail="Сначала подтвердите текущую версию карточки")
         connection.execute("UPDATE tasks SET status = 'published' WHERE id = ?", (task_id,))
         return get_task(connection, task_id)
+
+
+app.include_router(router)
