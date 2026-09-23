@@ -28,7 +28,7 @@ const screenTitles: Record<ScreenKey, string> = {
   proposals: "Предложения команд",
 };
 
-const STORAGE_KEY = "lovelab-team-proposals-demo-v1";
+const STORAGE_KEY = "lovelab-team-proposals-demo-v2";
 
 function loadDemoState(): DemoState {
   try {
@@ -72,7 +72,7 @@ export default function App() {
     }));
   }
 
-  function decideProposal(proposalId: string, decision: Exclude<ProposalDecision, "pending">) {
+  function decideProposal(proposalId: number, decision: Exclude<ProposalDecision, "pending">) {
     setDemoState((current) => ({
       ...current,
       proposals: current.proposals.map((proposal) =>
@@ -83,7 +83,7 @@ export default function App() {
     }));
   }
 
-  function confirmProgress(proposalId: string) {
+  function confirmProgress(proposalId: number) {
     setDemoState((current) => {
       const proposal = current.proposals.find((item) => item.id === proposalId);
       if (!proposal || proposal.decision !== "selected" || proposal.progress_confirmed) {

@@ -12,8 +12,8 @@ interface ProposalsScreenProps {
   teams: Team[];
   proposals: Proposal[];
   onAddProposal: (proposal: Proposal) => void;
-  onConfirmProgress: (proposalId: string) => void;
-  onDecideProposal: (proposalId: string, decision: Exclude<ProposalDecision, "pending">) => void;
+  onConfirmProgress: (proposalId: number) => void;
+  onDecideProposal: (proposalId: number, decision: Exclude<ProposalDecision, "pending">) => void;
 }
 
 type ProposalFilter = "all" | ProposalDecision;
@@ -40,7 +40,7 @@ export default function ProposalsScreen({
 }: ProposalsScreenProps) {
   const [filter, setFilter] = useState<ProposalFilter>("all");
   const [formOpen, setFormOpen] = useState(false);
-  const [teamId, setTeamId] = useState(teams[0]?.id ?? "");
+  const [teamId, setTeamId] = useState(teams[0]?.id ?? 0);
   const [idea, setIdea] = useState("");
   const [plan, setPlan] = useState("");
   const [duration, setDuration] = useState("");
@@ -56,7 +56,7 @@ export default function ProposalsScreen({
     if (!teamId) return;
 
     onAddProposal({
-      id: `proposal-${crypto.randomUUID()}`,
+      id: Date.now(),
       task_id: DEMO_TASK_ID,
       team_id: teamId,
       idea: idea.trim(),
@@ -107,7 +107,7 @@ export default function ProposalsScreen({
           </div>
           <label className="form-field">
             <span>Команда</span>
-            <select onChange={(event) => setTeamId(event.target.value)} required value={teamId}>
+            <select onChange={(event) => setTeamId(Number(event.target.value))} required value={teamId}>
               {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
             </select>
           </label>
