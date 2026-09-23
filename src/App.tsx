@@ -1,4 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  DEMO_TASK_ID,
+  INITIAL_DEMO_STATE,
+  PROGRESS_POINTS,
+  type DemoState,
+  type Proposal,
+  type ProposalDecision,
+} from "./data/teamProposals";
 import BuilderScreen from "./screens/BuilderScreen";
 import CatalogScreen from "./screens/CatalogScreen";
 import ProposalsScreen from "./screens/ProposalsScreen";
@@ -20,8 +28,78 @@ const screenTitles: Record<ScreenKey, string> = {
   proposals: "Предложения команд",
 };
 
+const STORAGE_KEY = "lovelab-team-proposals-demo-v1";
+
+function loadDemoState(): DemoState {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed: unknown = JSON.parse(stored);
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "teams" in parsed &&
+        "proposals" in parsed &&
+        Array.isArray(parsed.teams) &&
+        Array.isArray(parsed.proposals)
+      ) {
+        return parsed as DemoState;
+      }
+    }
+  } catch {
+    // Fall back to the seed data if local demo storage is unavailable or invalid.
+  }
+
+  return INITIAL_DEMO_STATE;
+}
+
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("catalog");
+  const [demoState, setDemoState] = useState<DemoState>(loadDemoState);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(demoState));
+    } catch {
+      // The demo remains usable for this session when browser storage is unavailable.
+    }
+  }, [demoState]);
+
+  function addProposal(proposal: Proposal) {
+    setDemoState((current) => ({
+      ...current,
+      proposals: [proposal, ...current.proposals],
+    }));
+  }
+
+  function decideProposal(proposalId: string, decision: Exclude<ProposalDecision, "pending">) {
+    setDemoState((current) => ({
+      ...current,
+      proposals: current.proposals.map((proposal) =>
+        proposal.id === proposalId && proposal.decision === "pending"
+          ? { ...proposal, decision }
+          : proposal,
+      ),
+    }));
+  }
+
+  function confirmProgress(proposalId: string) {
+    setDemoState((current) => {
+      const proposal = current.proposals.find((item) => item.id === proposalId);
+      if (!proposal || proposal.decision !== "selected" || proposal.progress_confirmed) {
+        return current;
+      }
+
+      return {
+        teams: current.teams.map((team) =>
+          team.id === proposal.team_id ? { ...team, points: team.points + PROGRESS_POINTS } : team,
+        ),
+        proposals: current.proposals.map((item) =>
+          item.id === proposalId ? { ...item, progress_confirmed: true } : item,
+        ),
+      };
+    });
+  }
 
   return (
     <div className="app-shell">
@@ -79,8 +157,16 @@ export default function App() {
         <main className="page-content">
           {activeScreen === "builder" && <BuilderScreen />}
           {activeScreen === "catalog" && <CatalogScreen />}
-          {activeScreen === "teams" && <TeamsScreen />}
-          {activeScreen === "proposals" && <ProposalsScreen />}
+          {activeScreen === "teams" && <TeamsScreen teams={demoState.teams} />}
+          {activeScreen === "proposals" && (
+            <ProposalsScreen
+              teams={demoState.teams}
+              proposals={demoState.proposals.filter((proposal) => proposal.task_id === DEMO_TASK_ID)}
+              onAddProposal={addProposal}
+              onConfirmProgress={confirmProgress}
+              onDecideProposal={decideProposal}
+            />
+          )}
         </main>
       </div>
     </div>
