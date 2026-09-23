@@ -5,3 +5,8 @@ CLAUDE.md
 NOTES.md
 node_modules/
 dist/
+backend/app.db
+__pycache__/
+.venv/
+frontend/node_modules/
+frontend/dist/
