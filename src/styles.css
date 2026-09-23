@@ -1,0 +1,78 @@
+:root {
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #1f2333;
+  background: #f6f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  font-weight: 400;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, a { font: inherit; }
+button { color: inherit; }
+
+.app-shell { min-height: 100vh; }
+.sidebar {
+  background: #fff;
+  border-right: 1px solid #e9eaf0;
+  display: flex;
+  flex-direction: column;
+  left: 0;
+  padding: 28px 18px 18px;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 252px;
+}
+.brand { align-items: center; color: inherit; display: flex; gap: 12px; padding: 0 8px; text-decoration: none; }
+.brand-mark { align-items: center; background: #7465e8; border-radius: 12px; color: #fff; display: flex; font: 800 19px "Segoe UI", sans-serif; height: 40px; justify-content: center; width: 40px; }
+.brand strong, .brand small { display: block; }
+.brand strong { font: 800 18px "Segoe UI", sans-serif; letter-spacing: -.6px; }
+.brand small { color: #8b8e9e; font-size: 11px; margin-top: 2px; }
+.workspace-label { color: #a3a5b1; font-size: 9px; font-weight: 700; letter-spacing: 1px; margin: 53px 10px 12px; }
+.main-nav { display: grid; gap: 6px; }
+.nav-link { align-items: center; background: transparent; border: 0; border-radius: 9px; color: #737688; cursor: pointer; display: flex; font-size: 13px; font-weight: 600; gap: 12px; padding: 12px 11px; text-align: left; transition: background .15s ease, color .15s ease; }
+.nav-link:hover { background: #f7f6ff; color: #5749cf; }
+.nav-link.is-active { background: #f0efff; color: #5648d1; }
+.nav-symbol { align-items: center; display: inline-flex; font-size: 17px; height: 18px; justify-content: center; width: 19px; }
+.sidebar-bottom { align-items: center; border-top: 1px solid #efeff3; display: flex; gap: 10px; margin-top: auto; padding: 17px 5px 2px; }
+.profile-avatar, .top-avatar { align-items: center; background: #ffeadc; border-radius: 50%; color: #cc744a; display: flex; font-size: 12px; font-weight: 700; height: 34px; justify-content: center; width: 34px; }
+.profile-copy { display: grid; gap: 3px; min-width: 0; }
+.profile-copy strong { font-size: 11px; }
+.profile-copy span { color: #9799a5; font-size: 10px; }
+.profile-more { color: #9b9daa; font-size: 20px; margin-left: auto; }
+.main-column { margin-left: 252px; min-height: 100vh; }
+.topbar { align-items: center; background: rgba(255,255,255,.9); border-bottom: 1px solid #e9eaf0; display: flex; height: 72px; justify-content: space-between; padding: 0 42px; }
+.breadcrumbs { align-items: center; color: #a0a1ae; display: flex; font-size: 12px; gap: 12px; }
+.breadcrumbs strong { color: #45485a; font-weight: 600; }
+.topbar-actions { align-items: center; display: flex; gap: 16px; }
+.demo-badge { align-items: center; background: #f1f9f4; border-radius: 20px; color: #43875e; display: flex; font-size: 10px; font-weight: 700; gap: 7px; padding: 7px 10px; }
+.demo-badge span { background: #4db772; border-radius: 50%; height: 6px; width: 6px; }
+.icon-button { background: transparent; border: 0; color: #818393; cursor: pointer; font-size: 19px; line-height: 1; }
+.top-avatar { background: #eeeaff; color: #6556dc; height: 32px; width: 32px; }
+.page-content { margin: 0 auto; max-width: 1180px; padding: 50px 42px 72px; }
+.placeholder-screen { max-width: 750px; }
+.eyebrow { color: #7769df; font-size: 10px; font-weight: 700; letter-spacing: 1.1px; }
+h1 { font: 800 clamp(28px, 3vw, 38px)/1.18 "Segoe UI", sans-serif; letter-spacing: -1.4px; margin: 12px 0; }
+.placeholder-screen p { color: #7e8191; font-size: 14px; line-height: 1.6; margin: 0; }
+.placeholder-card { align-items: center; background: #fff; border: 1px dashed #d9d8e9; border-radius: 14px; color: #999bab; display: flex; font-size: 13px; justify-content: center; margin-top: 30px; min-height: 220px; }
+
+@media (max-width: 760px) {
+  .sidebar { padding: 17px 11px; width: 68px; }
+  .brand { justify-content: center; padding: 0; }
+  .brand > span:last-child, .workspace-label { display: none; }
+  .nav-link { font-size: 0; justify-content: center; padding: 12px 8px; }
+  .nav-symbol { font-size: 17px; }
+  .main-nav { margin-top: 43px; }
+  .sidebar-bottom { justify-content: center; }
+  .profile-copy, .profile-more { display: none; }
+  .main-column { margin-left: 68px; }
+  .topbar { height: 60px; padding: 0 16px; }
+  .breadcrumbs { font-size: 10px; gap: 6px; }
+  .demo-badge { display: none; }
+  .page-content { padding: 36px 20px 55px; }
+}

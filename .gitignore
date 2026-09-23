@@ -3,3 +3,5 @@ AGENTS.override.md
 CLAUDE.md
 .claude/
 NOTES.md
+node_modules/
+dist/
