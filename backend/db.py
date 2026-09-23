@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 
@@ -18,5 +19,5 @@ def connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    with connect() as connection:
+    with closing(connect()) as connection, connection:
         connection.executescript(SCHEMA.read_text(encoding="utf-8"))

@@ -18,9 +18,26 @@ Planned catalog routes:
   and levels. No minimum score applies.
 - `GET /api/catalog/{task_id}` — one published task, regardless of score.
 
-The task builder should call the shared rating recalculation after business
-confirmation or a confirmed edit. Publishing and team proposals must not apply
-a score threshold.
+`GET /api/catalog` returns `{ "items": [...], "total": 5 }`; the second route
+returns one item. Both routes are implemented in `backend.main`. The level
+values are `draft`, `working`, `ready`, and `priority` for scores 0–39,
+40–69, 70–89, and 90–100.
+
+The task builder should call `backend.rating.confirm_task(connection, task_id,
+updates)` inside its transaction after business confirmation or a confirmed
+edit. It saves approved fields, sets `confirmed_at`, and recalculates `score`
+atomically. Its `updates` keys must come from the base Task text fields.
+Publishing and team proposals must not apply a score threshold.
+
+For a local demo: install `requirements.txt`, run `python -m backend.seed`, then
+run `uvicorn backend.main:app --reload`. Seeding adds five drafts and five
+published cards only if the database has no tasks.
+
+The React catalog is in `frontend/src/Catalog.tsx`. Run `npm install` and
+`npm run dev` from `frontend`; Vite proxies `/api` to the FastAPI server on
+port 8000. The component accepts an optional `onRespond(taskId)` callback for
+the proposal screen owned by `feat/team-proposals`. It does not filter or
+disable that callback by score.
 
 Example item in either catalog response (abridged task text):
 
