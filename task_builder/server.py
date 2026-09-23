@@ -6,6 +6,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -97,7 +98,15 @@ def get_task(connection: sqlite3.Connection, task_id: int) -> dict:
     row = connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Задача не найдена")
-    return {key: row[key] for key in ("id", *TEXT_FIELDS, "status", "score", "confirmed_at")}
+    return task_response(row)
+
+
+def task_response(row: sqlite3.Row) -> dict:
+    task = {key: row[key] for key in ("id", *TEXT_FIELDS, "status", "score", "confirmed_at")}
+    if shared_rating is not None:
+        task.update(shared_rating.evaluate(task, confirmed=bool(task["confirmed_at"])))
+        task["rating_preview"] = shared_rating.evaluate(task)
+    return task
 
 
 def validate_questions(payload: object) -> list[dict[str, str]]:
@@ -112,7 +121,7 @@ def validate_questions(payload: object) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             raise ValueError("Некорректный вопрос")
         field, question = item.get("field"), item.get("text")
-        if field not in QUESTION_FIELDS or field in fields or not isinstance(question, str) or not question.strip():
+        if not isinstance(field, str) or field not in QUESTION_FIELDS or field in fields or not isinstance(question, str) or not question.strip():
             raise ValueError("Некорректное поле или текст вопроса")
         fields.add(field)
         result.append({"field": field, "text": question.strip()})
@@ -181,6 +190,18 @@ def create_draft(request: DraftInput) -> dict:
         return get_task(connection, cursor.lastrowid)
 
 
+@router.get("/api/task-builder/tasks")
+def list_tasks(status: Literal["draft", "published"] | None = None) -> dict:
+    query = "SELECT * FROM tasks"
+    parameters = ()
+    if status is not None:
+        query += " WHERE status = ?"
+        parameters = (status,)
+    with closing(connect()) as connection:
+        items = [task_response(row) for row in connection.execute(query + " ORDER BY id DESC", parameters)]
+    return {"items": items, "total": len(items)}
+
+
 @router.get("/api/task-builder/tasks/{task_id}")
 def read_task(task_id: int) -> dict:
     with closing(connect()) as connection, connection:
@@ -190,6 +211,7 @@ def read_task(task_id: int) -> dict:
 @router.put("/api/task-builder/tasks/{task_id}")
 def edit_task(task_id: int, card: CardInput) -> dict:
     with closing(connect()) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
         current = get_task(connection, task_id)
         if current["status"] != "draft":
             raise HTTPException(status_code=409, detail="Опубликованную задачу нельзя менять в конструкторе")
@@ -201,15 +223,37 @@ def edit_task(task_id: int, card: CardInput) -> dict:
         return get_task(connection, task_id)
 
 
+@router.put("/api/task-builder/tasks/{task_id}/confirmed")
+def edit_confirmed_task(task_id: int, card: CardInput) -> dict:
+    """Save an explicitly approved published edit without hiding its proposals."""
+    values = {field: value.strip() for field, value in card.model_dump().items()}
+    with closing(connect()) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        current = get_task(connection, task_id)
+        if current["status"] != "published":
+            raise HTTPException(status_code=409, detail="Сначала подтвердите и опубликуйте черновик")
+        if not values["title"]:
+            raise HTTPException(status_code=422, detail="Укажите название задачи")
+        if shared_rating is not None:
+            shared_rating.confirm_task(connection, task_id, values)
+        else:
+            connection.execute(
+                f"UPDATE tasks SET {', '.join(field + ' = ?' for field in TEXT_FIELDS)}, confirmed_at = ? WHERE id = ?",
+                tuple(values[field] for field in TEXT_FIELDS) + (datetime.now(timezone.utc).isoformat(), task_id),
+            )
+        return get_task(connection, task_id)
+
+
 @router.post("/api/task-builder/tasks/{task_id}/confirm")
 def confirm_task(task_id: int) -> dict:
     with closing(connect()) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
         current = get_task(connection, task_id)
         if current["status"] != "draft":
             raise HTTPException(status_code=409, detail="Задача уже опубликована")
         if not current["title"].strip():
             raise HTTPException(status_code=422, detail="Укажите название задачи")
-        if shared_rating is not None and shared_db is not None and "TASK_BUILDER_DB_PATH" not in os.environ:
+        if shared_rating is not None:
             shared_rating.confirm_task(connection, task_id, {})
         else:
             connection.execute(
@@ -222,8 +266,11 @@ def confirm_task(task_id: int) -> dict:
 @router.post("/api/task-builder/tasks/{task_id}/publish")
 def publish_task(task_id: int) -> dict:
     with closing(connect()) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
         current = get_task(connection, task_id)
-        if current["status"] != "draft" or not current["confirmed_at"]:
+        if current["status"] == "published":
+            return current
+        if not current["confirmed_at"]:
             raise HTTPException(status_code=409, detail="Сначала подтвердите текущую версию карточки")
         connection.execute("UPDATE tasks SET status = 'published' WHERE id = ?", (task_id,))
         return get_task(connection, task_id)

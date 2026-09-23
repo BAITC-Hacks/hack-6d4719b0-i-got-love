@@ -32,7 +32,7 @@ const levelLabels: Record<Level, string> = {
   priority: "Приоритетная",
 };
 
-const fieldLabels: Record<string, string> = {
+const fieldLabels = {
   context: "контекст",
   need: "потребность",
   data: "данные",
@@ -54,9 +54,15 @@ const criterionLabels: Record<string, string> = {
   business_contact: "Связь с бизнесом",
 };
 
-export function Catalog({ onRespond }: { onRespond?: (taskId: number) => void }) {
+type CatalogProps = {
+  onRespond?: (taskId: number) => void;
+  onEdit?: (taskId: number) => void;
+};
+
+export function Catalog({ onRespond, onEdit }: CatalogProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [topics, setTopics] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const [retry, setRetry] = useState(0);
   const [sort, setSort] = useState("score_desc");
   const [topic, setTopic] = useState("");
   const [level, setLevel] = useState("");
@@ -64,38 +70,42 @@ export function Catalog({ onRespond }: { onRespond?: (taskId: number) => void })
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/catalog")
-      .then((response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить темы");
-        return response.json() as Promise<CatalogResponse>;
-      })
-      .then((data) => setTopics([...new Set(data.items.map((item) => item.topic))].sort()))
-      .catch(() => setError("Не удалось загрузить каталог"));
-  }, []);
-
-  useEffect(() => {
     const controller = new AbortController();
-    const params = new URLSearchParams({ sort });
-    if (topic) params.set("topic", topic);
-    if (level) params.set("level", level);
     setLoading(true);
     setError("");
-    fetch(`/api/catalog?${params}`, { signal: controller.signal })
+    fetch("/api/catalog", { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error("Не удалось загрузить задачи");
         return response.json() as Promise<CatalogResponse>;
       })
-      .then((data) => setTasks(data.items))
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setError("Не удалось загрузить каталог");
+      .then((data) => {
+        if (!controller.signal.aborted) setTasks(data.items);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setError("Не удалось загрузить каталог. Проверьте соединение и попробуйте ещё раз.");
         }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [sort, topic, level]);
+  }, [retry]);
+
+  const topics = [...new Set(tasks.map((task) => task.topic).filter(Boolean))].sort();
+  const query = search.trim().toLocaleLowerCase("ru");
+  const visibleTasks = tasks
+    .filter((task) => (!topic || task.topic === topic) && (!level || task.level === level))
+    .filter((task) => !query || [task.title, task.topic, task.context, task.need, task.users, task.expected_result]
+      .some((value) => value.toLocaleLowerCase("ru").includes(query)))
+    .sort((left, right) => (sort === "score_asc" ? left.score - right.score : right.score - left.score) || left.id - right.id);
+  const hasFilters = Boolean(query || topic || level);
+
+  function resetFilters() {
+    setSearch("");
+    setTopic("");
+    setLevel("");
+  }
 
   return (
     <section className="catalog">
@@ -106,6 +116,10 @@ export function Catalog({ onRespond }: { onRespond?: (taskId: number) => void })
       </header>
 
       <section className="filters" aria-label="Фильтры каталога">
+        <label className="catalog-search">
+          Поиск задачи
+          <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Название, потребность или тема" />
+        </label>
         <label>
           Сортировка
           <select value={sort} onChange={(event) => setSort(event.target.value)}>
@@ -131,21 +145,44 @@ export function Catalog({ onRespond }: { onRespond?: (taskId: number) => void })
         </label>
       </section>
 
-      {error && <p className="message" role="alert">{error}</p>}
-      {loading ? <p className="message">Загрузка…</p> : (
+      {loading ? <p className="message" role="status">Загрузка задач…</p> : error ? (
+        <div className="message catalog-error" role="alert">
+          <p>{error}</p>
+          <button type="button" onClick={() => setRetry((value) => value + 1)}>Повторить загрузку</button>
+        </div>
+      ) : (
         <>
-          <p className="count">Найдено задач: {tasks.length}</p>
-          {tasks.length === 0 && <p className="message">По этим фильтрам задач нет.</p>}
+          <div className="catalog-results">
+            <p className="count" role="status">Найдено задач: {visibleTasks.length}</p>
+            {hasFilters && <button type="button" className="catalog-secondary" onClick={resetFilters}>Сбросить фильтры</button>}
+          </div>
+          {visibleTasks.length === 0 && (
+            <div className="message catalog-empty">
+              <h2>{hasFilters ? "Ничего не найдено" : "Пока нет опубликованных задач"}</h2>
+              <p>{hasFilters ? "Измените поисковый запрос или сбросьте фильтры." : "Подтвердите и опубликуйте первую задачу в конструкторе."}</p>
+            </div>
+          )}
           <div className="task-grid">
-            {tasks.map((task) => (
+            {visibleTasks.map((task) => (
               <article className="task-card" key={task.id}>
                 <div className="task-topline">
                   <span className="topic">{task.topic || "Без темы"}</span>
                   <span className={`level level-${task.level}`}>{levelLabels[task.level]}</span>
                 </div>
                 <h2>{task.title || "Без названия"}</h2>
-                <p className="task-summary">{task.need || task.context || "Описание пока не заполнено."}</p>
-                <div className="score"><strong>{task.score}</strong><span> / 100 баллов</span></div>
+                <p className="catalog-task-summary">{task.need || task.context || "Описание пока не заполнено."}</p>
+                <div className="score"><strong>{task.score}</strong><span> / 100 баллов готовности</span></div>
+                <details className="catalog-task-details">
+                  <summary>Полная карточка задачи</summary>
+                  <dl>
+                    {(Object.keys(fieldLabels) as (keyof typeof fieldLabels)[]).map((field) => (
+                      <div key={field}>
+                        <dt>{fieldLabels[field]}</dt>
+                        <dd>{task[field] || "Пока не указано"}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </details>
                 <details>
                   <summary>Почему такой рейтинг</summary>
                   <ul className="breakdown">
@@ -155,11 +192,16 @@ export function Catalog({ onRespond }: { onRespond?: (taskId: number) => void })
                   </ul>
                   <p className="missing">
                     {task.missing_fields.length
-                      ? `Не хватает: ${task.missing_fields.map((field) => fieldLabels[field] || field).join(", ")}.`
+                      ? `Не хватает: ${task.missing_fields.map((field) => fieldLabels[field as keyof typeof fieldLabels] || field).join(", ")}.`
                       : "Все сведения заполнены."}
                   </p>
                 </details>
-                {onRespond && <button type="button" onClick={() => onRespond(task.id)}>Откликнуться</button>}
+                {(onRespond || onEdit) && (
+                  <div className="catalog-card-actions">
+                    {onRespond && <button type="button" onClick={() => onRespond(task.id)}>Откликнуться</button>}
+                    {onEdit && <button type="button" className="catalog-secondary" onClick={() => onEdit(task.id)}>Редактировать</button>}
+                  </div>
+                )}
               </article>
             ))}
           </div>

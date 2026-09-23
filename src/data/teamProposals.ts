@@ -24,5 +24,3 @@ export interface Proposal {
 export type NewProposal = Pick<Proposal, "task_id" | "team_id" | "idea" | "plan" | "duration" | "prototype_url">;
 
 export const PROGRESS_POINTS = 10;
-export const DEMO_TASK_ID = 7;
-export const DEMO_TASK_TITLE = "Сократить время ответов службы поддержки";
