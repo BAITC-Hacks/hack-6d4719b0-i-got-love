@@ -4,23 +4,18 @@ import json
 import os
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Literal
+from http.client import HTTPException as HTTPClientException
+from threading import BoundedSemaphore
+from typing import Annotated, Literal
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from fastapi import APIRouter, FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Path as APIPath
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-if (Path(__file__).resolve().parents[1] / "backend" / "db.py").exists():
-    from backend import db as shared_db
-else:
-    shared_db = None
-if (Path(__file__).resolve().parents[1] / "backend" / "rating.py").exists():
-    from backend import rating as shared_rating
-else:
-    shared_rating = None
+from backend import db as shared_db
+from backend import rating as shared_rating
+from backend.auth import require_user
 
 
 TEXT_FIELDS = (
@@ -63,7 +58,7 @@ QUESTION_SCHEMA = {
             "type": "object",
             "properties": {
                 "field": {"type": "string", "enum": list(QUESTION_FIELDS)},
-                "text": {"type": "string", "minLength": 1, "pattern": r"\?$"},
+                "text": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": r"\?$"},
             },
             "required": ["field", "text"], "additionalProperties": False,
         },
@@ -71,21 +66,33 @@ QUESTION_SCHEMA = {
     "required": ["questions"], "additionalProperties": False,
 }
 
-app = FastAPI(title="Task builder API")
+class NoAIRedirects(HTTPRedirectHandler):
+    """Do not forward descriptions or credentials to a redirected destination."""
+
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        return None
+
+
+urlopen = build_opener(NoAIRedirects()).open
+AI_RESPONSE_LIMIT = 64 * 1024
+AI_GENERATION_SLOTS = BoundedSemaphore(2)
+
 router = APIRouter()
 
 
 class DescriptionInput(BaseModel):
-    description: str = Field(min_length=1)
+    description: str = Field(min_length=1, max_length=10000)
 
 
 class DraftInput(DescriptionInput):
-    answers: dict[str, str]
+    answers: dict[str, Annotated[str, Field(max_length=10000)]] = Field(max_length=len(QUESTION_FIELDS))
 
 
 class CardInput(BaseModel):
-    title: str = ""
-    topic: str = ""
+    model_config = ConfigDict(str_max_length=10000)
+
+    title: str = Field(default="", max_length=200)
+    topic: str = Field(default="", max_length=100)
     context: str = ""
     need: str = ""
     users: str = ""
@@ -93,32 +100,24 @@ class CardInput(BaseModel):
     constraints: str = ""
     expected_result: str = ""
     success_criteria: str = ""
-    contact: str = ""
-    interaction_format: str = ""
-
-
-def db_path() -> Path:
-    return Path(os.environ.get("TASK_BUILDER_DB_PATH", Path(__file__).with_name("tasks.db")))
+    contact: str = Field(default="", max_length=500)
+    interaction_format: str = Field(default="", max_length=1000)
 
 
 def connect() -> sqlite3.Connection:
-    if shared_db is not None and "TASK_BUILDER_DB_PATH" not in os.environ:
-        shared_db.init_db()
-        return shared_db.connect()
-    connection = sqlite3.connect(db_path())
-    connection.row_factory = sqlite3.Row
-    connection.execute("""CREATE TABLE IF NOT EXISTS tasks (
-        id INTEGER PRIMARY KEY,
-        title TEXT NOT NULL DEFAULT '', topic TEXT NOT NULL DEFAULT '',
-        context TEXT NOT NULL DEFAULT '', need TEXT NOT NULL DEFAULT '',
-        users TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '',
-        constraints TEXT NOT NULL DEFAULT '', expected_result TEXT NOT NULL DEFAULT '',
-        success_criteria TEXT NOT NULL DEFAULT '', contact TEXT NOT NULL DEFAULT '',
-        interaction_format TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
-        score INTEGER NOT NULL DEFAULT 0, confirmed_at TEXT
-    )""")
-    return connection
+    shared_db.init_db()
+    return shared_db.connect()
+
+
+def require_business(user: dict) -> None:
+    if user["role"] != "business":
+        raise HTTPException(status_code=403, detail="Конструктор доступен только представителям бизнеса")
+
+
+def require_task_owner(task: dict, user: dict) -> None:
+    require_business(user)
+    if task["owner_user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Вы можете изменять только свои задачи")
 
 
 def get_task(connection: sqlite3.Connection, task_id: int) -> dict:
@@ -129,10 +128,9 @@ def get_task(connection: sqlite3.Connection, task_id: int) -> dict:
 
 
 def task_response(row: sqlite3.Row) -> dict:
-    task = {key: row[key] for key in ("id", *TEXT_FIELDS, "status", "score", "confirmed_at")}
-    if shared_rating is not None:
-        task.update(shared_rating.evaluate(task, confirmed=bool(task["confirmed_at"])))
-        task["rating_preview"] = shared_rating.evaluate(task)
+    task = {key: row[key] for key in ("id", *TEXT_FIELDS, "status", "score", "confirmed_at", "owner_user_id")}
+    task.update(shared_rating.evaluate(task, confirmed=bool(task["confirmed_at"])))
+    task["rating_preview"] = shared_rating.evaluate(task)
     return task
 
 
@@ -148,11 +146,19 @@ def validate_questions(payload: object) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             raise ValueError("Некорректный вопрос")
         field, question = item.get("field"), item.get("text")
-        if not isinstance(field, str) or field not in QUESTION_FIELDS or field in fields or not isinstance(question, str) or not question.strip().endswith("?"):
+        if not isinstance(field, str) or field not in QUESTION_FIELDS or field in fields or not isinstance(question, str) or len(question) > 500 or not question.strip().endswith("?"):
             raise ValueError("Некорректное поле или текст вопроса")
+        question.encode("utf-8")  # Reject malformed Unicode before JSON response encoding.
         fields.add(field)
         result.append({"field": field, "text": question.strip()})
     return result
+
+
+def read_ai_response(response) -> object:
+    payload = response.read(AI_RESPONSE_LIMIT + 1)
+    if len(payload) > AI_RESPONSE_LIMIT:
+        raise ValueError("Ответ ИИ превышает допустимый размер")
+    return json.loads(payload)
 
 
 def external_questions(description: str) -> list[dict[str, str]]:
@@ -174,7 +180,7 @@ def external_questions(description: str) -> list[dict[str, str]]:
         method="POST",
     )
     with urlopen(request, timeout=12) as response:
-        data = json.load(response)
+        data = read_ai_response(response)
     content = data["choices"][0]["message"]["content"]
     return validate_questions(json.loads(content))
 
@@ -201,34 +207,40 @@ def ollama_questions(description: str) -> list[dict[str, str]]:
         method="POST",
     )
     with urlopen(request, timeout=60) as response:
-        data = json.load(response)
+        data = read_ai_response(response)
     return validate_questions(json.loads(data["message"]["content"]))
 
 
 @router.post("/api/task-builder/questions")
-def questions(request: DescriptionInput) -> dict:
+def questions(request: DescriptionInput, user: dict = Depends(require_user)) -> dict:
+    require_business(user)
     description = request.description.strip()
     if not description:
         raise HTTPException(status_code=422, detail="Введите описание")
     external_configured = all(os.environ.get(name, "").strip() for name in ("AI_API_URL", "AI_API_KEY", "AI_MODEL"))
     source = "ollama" if not external_configured and os.environ.get("OLLAMA_MODEL", "").strip() else "external"
+    if not AI_GENERATION_SLOTS.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="ИИ сейчас обрабатывает другие запросы. Попробуйте ещё раз чуть позже.", headers={"Retry-After": "5"})
     try:
         result = ollama_questions(description) if source == "ollama" else external_questions(description)
         return {"questions": result, "source": source, "warning": None, "fallback_reason": None}
     except RuntimeError:
         reason = "not_configured"
         warning = "ИИ пока не подключён. Сейчас доступны стандартные вопросы — вы можете продолжить работу."
-    except (HTTPError, URLError, TimeoutError, OSError):
+    except (HTTPError, URLError, TimeoutError, OSError, HTTPClientException):
         reason = "unavailable"
         warning = "Не удалось связаться с ИИ. Показаны стандартные вопросы — попробуйте получить уточняющие вопросы позже."
     except (ValueError, KeyError, IndexError, TypeError):
         reason = "invalid_response"
         warning = "ИИ вернул некорректный ответ. Показаны стандартные вопросы — вы можете продолжить работу."
+    finally:
+        AI_GENERATION_SLOTS.release()
     return {"questions": list(FALLBACK_QUESTIONS), "source": "local", "warning": warning, "fallback_reason": reason}
 
 
 @router.post("/api/task-builder/drafts", status_code=201)
-def create_draft(request: DraftInput) -> dict:
+def create_draft(request: DraftInput, user: dict = Depends(require_user)) -> dict:
+    require_business(user)
     description = request.description.strip()
     if not description:
         raise HTTPException(status_code=422, detail="Введите описание")
@@ -239,39 +251,49 @@ def create_draft(request: DraftInput) -> dict:
     card["context"] = description
     for field, value in request.answers.items():
         card[field] = value.strip()
+    try:
+        CardInput.model_validate(card)
+    except ValidationError:
+        raise HTTPException(status_code=422, detail="Поле карточки превышает допустимую длину") from None
     with closing(connect()) as connection, connection:
         columns = ", ".join(TEXT_FIELDS)
         placeholders = ", ".join("?" for _ in TEXT_FIELDS)
         cursor = connection.execute(
-            f"INSERT INTO tasks ({columns}) VALUES ({placeholders})",
-            tuple(card[field] for field in TEXT_FIELDS),
+            f"INSERT INTO tasks ({columns}, owner_user_id) VALUES ({placeholders}, ?)",
+            tuple(card[field] for field in TEXT_FIELDS) + (user["id"],),
         )
         return get_task(connection, cursor.lastrowid)
 
 
 @router.get("/api/task-builder/tasks")
-def list_tasks(status: Literal["draft", "published"] | None = None) -> dict:
-    query = "SELECT * FROM tasks"
-    parameters = ()
+def list_tasks(status: Literal["draft", "published"] | None = None, user: dict = Depends(require_user)) -> dict:
+    require_business(user)
+    query = "SELECT * FROM tasks WHERE owner_user_id = ?"
+    parameters = (user["id"],)
     if status is not None:
-        query += " WHERE status = ?"
-        parameters = (status,)
+        query += " AND status = ?"
+        parameters += (status,)
     with closing(connect()) as connection:
         items = [task_response(row) for row in connection.execute(query + " ORDER BY id DESC", parameters)]
     return {"items": items, "total": len(items)}
 
 
 @router.get("/api/task-builder/tasks/{task_id}")
-def read_task(task_id: int) -> dict:
+def read_task(task_id: Annotated[int, APIPath(gt=0, le=2**63 - 1)], user: dict = Depends(require_user)) -> dict:
+    require_business(user)
     with closing(connect()) as connection, connection:
-        return get_task(connection, task_id)
+        current = get_task(connection, task_id)
+        require_task_owner(current, user)
+        return current
 
 
 @router.put("/api/task-builder/tasks/{task_id}")
-def edit_task(task_id: int, card: CardInput) -> dict:
+def edit_task(task_id: Annotated[int, APIPath(gt=0, le=2**63 - 1)], card: CardInput, user: dict = Depends(require_user)) -> dict:
+    require_business(user)
     with closing(connect()) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         current = get_task(connection, task_id)
+        require_task_owner(current, user)
         if current["status"] != "draft":
             raise HTTPException(status_code=409, detail="Опубликованную задачу нельзя менять в конструкторе")
         values = card.model_dump()
@@ -283,56 +305,47 @@ def edit_task(task_id: int, card: CardInput) -> dict:
 
 
 @router.put("/api/task-builder/tasks/{task_id}/confirmed")
-def edit_confirmed_task(task_id: int, card: CardInput) -> dict:
+def edit_confirmed_task(task_id: Annotated[int, APIPath(gt=0, le=2**63 - 1)], card: CardInput, user: dict = Depends(require_user)) -> dict:
+    require_business(user)
     """Save an explicitly approved published edit without hiding its proposals."""
     values = {field: value.strip() for field, value in card.model_dump().items()}
     with closing(connect()) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         current = get_task(connection, task_id)
+        require_task_owner(current, user)
         if current["status"] != "published":
             raise HTTPException(status_code=409, detail="Сначала подтвердите и опубликуйте черновик")
         if not values["title"]:
             raise HTTPException(status_code=422, detail="Укажите название задачи")
-        if shared_rating is not None:
-            shared_rating.confirm_task(connection, task_id, values)
-        else:
-            connection.execute(
-                f"UPDATE tasks SET {', '.join(field + ' = ?' for field in TEXT_FIELDS)}, confirmed_at = ? WHERE id = ?",
-                tuple(values[field] for field in TEXT_FIELDS) + (datetime.now(timezone.utc).isoformat(), task_id),
-            )
+        shared_rating.confirm_task(connection, task_id, values)
         return get_task(connection, task_id)
 
 
 @router.post("/api/task-builder/tasks/{task_id}/confirm")
-def confirm_task(task_id: int) -> dict:
+def confirm_task(task_id: Annotated[int, APIPath(gt=0, le=2**63 - 1)], user: dict = Depends(require_user)) -> dict:
+    require_business(user)
     with closing(connect()) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         current = get_task(connection, task_id)
+        require_task_owner(current, user)
         if current["status"] != "draft":
             raise HTTPException(status_code=409, detail="Задача уже опубликована")
         if not current["title"].strip():
             raise HTTPException(status_code=422, detail="Укажите название задачи")
-        if shared_rating is not None:
-            shared_rating.confirm_task(connection, task_id, {})
-        else:
-            connection.execute(
-                "UPDATE tasks SET confirmed_at = ? WHERE id = ?",
-                (datetime.now(timezone.utc).isoformat(), task_id),
-            )
+        shared_rating.confirm_task(connection, task_id, {})
         return get_task(connection, task_id)
 
 
 @router.post("/api/task-builder/tasks/{task_id}/publish")
-def publish_task(task_id: int) -> dict:
+def publish_task(task_id: Annotated[int, APIPath(gt=0, le=2**63 - 1)], user: dict = Depends(require_user)) -> dict:
+    require_business(user)
     with closing(connect()) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         current = get_task(connection, task_id)
+        require_task_owner(current, user)
         if current["status"] == "published":
             return current
         if not current["confirmed_at"]:
             raise HTTPException(status_code=409, detail="Сначала подтвердите текущую версию карточки")
         connection.execute("UPDATE tasks SET status = 'published' WHERE id = ?", (task_id,))
         return get_task(connection, task_id)
-
-
-app.include_router(router)

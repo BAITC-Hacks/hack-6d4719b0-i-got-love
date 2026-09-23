@@ -7,11 +7,14 @@ import tempfile
 import unittest
 from contextlib import closing
 from unittest.mock import patch
+from fastapi.testclient import TestClient
 
 from .db import connect
 from .localize_demo import LEGACY_PROTOTYPE_URLS, LEGACY_TASK_FIELDS, LEGACY_TEAM_FIELDS, localize_demo_data
 from .seed import seed_demo as seed_tasks
 from .team_proposals import seed_demo as seed_teams
+from .integration import app
+from .test_support import register_user
 
 
 class LocalizationTests(unittest.TestCase):
@@ -96,6 +99,21 @@ class LocalizationTests(unittest.TestCase):
             urls = [row[0] for row in connection.execute("SELECT prototype_url FROM proposals ORDER BY id")]
             self.assertEqual(urls, ["", real_url, "", "", "", LEGACY_PROTOTYPE_URLS[1]])
             self.assertEqual(connection.execute("SELECT points FROM teams WHERE id = 1").fetchone()[0], 10)
+
+    def test_owned_content_is_never_treated_as_legacy_seed(self):
+        with TestClient(app) as client:
+            business = register_user(client)
+            team = register_user(client, "team")
+        with closing(connect()) as connection, connection:
+            connection.execute("UPDATE tasks SET title = 'Shorten support replies', owner_user_id = ? WHERE id = 7", (business["id"],))
+            connection.execute("DELETE FROM teams WHERE id = ?", (team["team_id"],))
+            connection.execute("UPDATE teams SET name = 'Pixel Lab', owner_user_id = ? WHERE id = 1", (team["id"],))
+            connection.execute("UPDATE proposals SET prototype_url = ? WHERE id = 1", (LEGACY_PROTOTYPE_URLS[1],))
+        self.assertEqual(localize_demo_data(), 0)
+        with closing(connect()) as connection:
+            self.assertEqual(connection.execute("SELECT title FROM tasks WHERE id = 7").fetchone()[0], "Shorten support replies")
+            self.assertEqual(connection.execute("SELECT name FROM teams WHERE id = 1").fetchone()[0], "Pixel Lab")
+            self.assertEqual(connection.execute("SELECT prototype_url FROM proposals WHERE id = 1").fetchone()[0], LEGACY_PROTOTYPE_URLS[1])
 
 
 if __name__ == "__main__":

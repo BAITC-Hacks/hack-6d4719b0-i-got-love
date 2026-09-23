@@ -1,16 +1,20 @@
 """FastAPI entry point for the shared catalog."""
 
 from contextlib import asynccontextmanager, closing
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Path, Query
 
 from .db import connect, init_db
-from .rating import evaluate
+from .rating import evaluate, reconcile_ratings
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    with closing(connect()) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        reconcile_ratings(connection)
     yield
 
 
@@ -43,7 +47,7 @@ def list_catalog(
 
 
 @app.get("/api/catalog/{task_id}")
-def get_catalog_task(task_id: int):
+def get_catalog_task(task_id: Annotated[int, Path(gt=0, le=2**63 - 1)]):
     with closing(connect()) as connection:
         row = connection.execute(
             "SELECT * FROM tasks WHERE id = ? AND status = 'published'", (task_id,)

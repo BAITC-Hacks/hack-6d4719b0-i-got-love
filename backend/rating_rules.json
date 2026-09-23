@@ -1,0 +1,10 @@
+{
+  "min_distinct_words": 2,
+  "min_letters": 8,
+  "placeholder_words": ["asd", "asdasd", "asdf", "qwe", "qwerty", "test", "тест", "foo", "bar", "йцу", "йцукен", "фыва", "фывапр", "placeholder", "lorem", "ipsum"],
+  "allowed_acronyms": ["api", "csv", "sql", "ux", "ui", "http", "https"],
+  "empty_reason": "Заполните поле.",
+  "placeholder_reason": "Замените набор символов или шаблонный текст конкретными сведениями.",
+  "detail_reason": "Опишите подробнее: минимум два разных слова и восемь букв.",
+  "contact_reason": "Укажите почту, телефон (от 7 цифр), @имя, ссылку или имя и фамилию контактного лица."
+}

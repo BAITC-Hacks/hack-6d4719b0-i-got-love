@@ -1,5 +1,25 @@
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('business', 'team')),
+    available INTEGER NOT NULL DEFAULT 1 CHECK (available IN (0, 1)),
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY,
+    owner_user_id INTEGER REFERENCES users(id),
     title TEXT NOT NULL DEFAULT '',
     topic TEXT NOT NULL DEFAULT '',
     context TEXT NOT NULL DEFAULT '',
@@ -18,6 +38,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE TABLE IF NOT EXISTS teams (
     id INTEGER PRIMARY KEY,
+    owner_user_id INTEGER REFERENCES users(id),
     name TEXT NOT NULL,
     interests TEXT NOT NULL DEFAULT '[]',
     skills TEXT NOT NULL DEFAULT '[]',

@@ -133,3 +133,5 @@
 
 .catalog .catalog-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
 .catalog .catalog-total { padding: 7px 11px; border-radius: 8px; background: #ede8fc; color: #705b9e; font-size: 12px; white-space: nowrap; }
+.catalog .catalog-recommendation-info { margin: 18px 0; padding: 16px 18px; color: #786583; background: #f1edf8; border-radius: 11px; font-size: 13px; line-height: 1.7; }
+.catalog .catalog-match { margin: 0; padding: 10px 12px; background: #eaf4ef; color: #527d65; border-radius: 8px; font-size: 12px; line-height: 1.6; }

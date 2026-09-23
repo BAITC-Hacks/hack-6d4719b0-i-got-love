@@ -14,6 +14,10 @@ interface ProposalsScreenProps {
   taskId: number;
   taskTitle: string;
   busy?: boolean;
+  canManage?: boolean;
+  canSubmit?: boolean;
+  allowedTeamId?: number;
+  onLogin?: () => void;
   onAddProposal: (proposal: NewProposal) => Promise<void>;
   onConfirmProgress: (proposalId: number) => void;
   onDecideProposal: (proposalId: number, decision: Exclude<ProposalDecision, "pending">) => void;
@@ -50,13 +54,17 @@ export default function ProposalsScreen({
   taskId,
   taskTitle,
   busy = false,
+  canManage = false,
+  canSubmit = false,
+  allowedTeamId,
+  onLogin,
   onAddProposal,
   onConfirmProgress,
   onDecideProposal,
 }: ProposalsScreenProps) {
   const [filter, setFilter] = useState<ProposalFilter>("all");
   const [formOpen, setFormOpen] = useState(false);
-  const [teamId, setTeamId] = useState(teams[0]?.id ?? 0);
+  const [teamId, setTeamId] = useState(allowedTeamId ?? 0);
   const [idea, setIdea] = useState("");
   const [plan, setPlan] = useState("");
   const [duration, setDuration] = useState("");
@@ -70,7 +78,7 @@ export default function ProposalsScreen({
 
   async function submitProposal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!teamId || submitting) return;
+    if (!teamId || teamId !== allowedTeamId || !canSubmit || submitting) return;
 
     setSubmitting(true);
     try {
@@ -103,9 +111,9 @@ export default function ProposalsScreen({
           <h1>Предложения команд</h1>
           <p className="section-description">Сравните идеи и вручную выберите команды для задачи.</p>
         </div>
-        <button disabled={!teams.length || submitting} className="button button--primary" onClick={() => setFormOpen((open) => !open)} type="button">
+        {canSubmit && <button disabled={!teams.some(team => team.id === allowedTeamId) || submitting} className="button button--primary" onClick={() => setFormOpen((open) => !open)} type="button">
           <Icon name="plus" size={18} /> Добавить отклик
-        </button>
+        </button>}
       </div>
 
       <article className="task-summary">
@@ -116,9 +124,10 @@ export default function ProposalsScreen({
         </div>
         <span className="status-pill status-pill--published">Опубликована</span>
       </article>
+      {!canSubmit && <div className="proposal-auth-note"><span>{onLogin ? "Войдите как команда, чтобы предложить решение. Решения по откликам принимает владелец задачи." : canManage ? "Вы управляете откликами на свою задачу. Выберите подходящие предложения вручную." : "Здесь можно ознакомиться с предложениями. Отправлять отклики могут команды; выбирать их — владелец задачи."}</span>{onLogin && <button type="button" className="button button--primary" onClick={onLogin}>Войти для отклика</button>}</div>}
       {!teams.length && <p className="app-error" role="status">Команд пока нет. Для демонстрации подготовьте профили команд по инструкции запуска.</p>}
 
-      {formOpen && (
+      {formOpen && canSubmit && (
         <form className="proposal-form" onSubmit={(event) => void submitProposal(event)}>
           <fieldset disabled={submitting}>
           <div className="form-heading">
@@ -131,25 +140,25 @@ export default function ProposalsScreen({
           <label className="form-field">
             <span>Команда</span>
             <select onChange={(event) => setTeamId(Number(event.target.value))} required value={teamId}>
-              {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              {teams.filter(team => team.id === allowedTeamId).map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
             </select>
           </label>
           <label className="form-field">
             <span>Идея</span>
-            <textarea onChange={(event) => setIdea(event.target.value)} required rows={2} value={idea} />
+            <textarea maxLength={10000} onChange={(event) => setIdea(event.target.value)} required rows={2} value={idea} />
           </label>
           <label className="form-field">
             <span>План работы</span>
-            <textarea onChange={(event) => setPlan(event.target.value)} required rows={2} value={plan} />
+            <textarea maxLength={10000} onChange={(event) => setPlan(event.target.value)} required rows={2} value={plan} />
           </label>
           <div className="form-grid">
             <label className="form-field">
               <span>Срок</span>
-              <input onChange={(event) => setDuration(event.target.value)} placeholder="Например, 2 недели" required value={duration} />
+              <input maxLength={200} onChange={(event) => setDuration(event.target.value)} placeholder="Например, 2 недели" required value={duration} />
             </label>
             <label className="form-field">
               <span>Ссылка на прототип</span>
-              <input onChange={(event) => setPrototypeUrl(event.target.value)} placeholder="https://..." required type="url" value={prototypeUrl} />
+              <input maxLength={2048} onChange={(event) => setPrototypeUrl(event.target.value)} placeholder="https://..." required type="url" value={prototypeUrl} />
             </label>
           </div>
           <div className="form-actions">
@@ -226,13 +235,13 @@ export default function ProposalsScreen({
                   <span className="team-points"><span aria-hidden="true">✦</span> {team.points} баллов</span>
                 </div>
                 <div className="proposal-actions">
-                  {proposal.decision === "pending" && (
+                  {canManage && proposal.decision === "pending" && (
                     <>
                       <button disabled={busy} className="button button--quiet button--small" onClick={() => onDecideProposal(proposal.id, "rejected")} type="button">Отклонить</button>
                       <button disabled={busy} className="button button--primary button--small" onClick={() => onDecideProposal(proposal.id, "selected")} type="button">Выбрать команду</button>
                     </>
                   )}
-                  {proposal.decision === "selected" && !proposal.progress_confirmed && (
+                  {canManage && proposal.decision === "selected" && !proposal.progress_confirmed && (
                     <button disabled={busy} className="button button--progress button--small" onClick={() => onConfirmProgress(proposal.id)} type="button">
                       Подтвердить этап <span>+{PROGRESS_POINTS} баллов</span>
                     </button>

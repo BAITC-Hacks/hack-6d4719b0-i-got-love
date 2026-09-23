@@ -1,8 +1,64 @@
 """Rating of business-confirmed task fields."""
 
 from datetime import datetime, timezone
+import json
+from pathlib import Path
+import re
 from typing import Mapping
 import sqlite3
+from urllib.parse import urlparse
+
+
+RULES = json.loads(Path(__file__).with_name("rating_rules.json").read_text(encoding="utf-8"))
+PLACEHOLDERS = set(RULES["placeholder_words"])
+ACRONYMS = set(RULES["allowed_acronyms"])
+
+
+def readable_words(value: str) -> list[str]:
+    """A transparent shape check, not a semantic or factual quality assessment."""
+    result = []
+    for word in re.findall(r"[^\W\d_]+", value.casefold()):
+        if len(word) < 2 or word in PLACEHOLDERS:
+            continue
+        if any(len(word) % len(base) == 0 and word == base * (len(word) // len(base)) for base in PLACEHOLDERS):
+            continue
+        if any(len(word) >= size * 3 and len(word) % size == 0 and word == word[:size] * (len(word) // size) for size in (1, 2, 3)):
+            continue
+        if re.fullmatch(r"[a-zа-яё]+", word) and not re.search(r"[aeiouyаеёиоуыэюя]", word) and word not in ACRONYMS:
+            continue
+        result.append(word)
+    return result
+
+
+def field_issue(name: str, value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return RULES["empty_reason"]
+    words = readable_words(text)
+    if name == "contact":
+        if re.fullmatch(r"[^@\s]+@(?:[\w-]+\.)+[\w-]{2,}", text):
+            return None
+        digits = re.sub(r"\D", "", text)
+        if re.fullmatch(r"\+?[\d()\s.\-]+", text) and 7 <= len(digits) <= 15 and len(set(digits)) > 1:
+            return None
+        if re.fullmatch(r"@[a-zA-Z][a-zA-Z0-9_]{4,31}", text) and words:
+            return None
+        try:
+            url = urlparse(text)
+            if (url.scheme in ("http", "https") and url.hostname and url.username is None
+                    and "\\" not in text and not any(character.isspace() or ord(character) < 32 for character in text)):
+                url.port
+                return None
+        except ValueError:
+            pass
+        if len(text.split()) >= 2 and re.fullmatch(r"[^\W\d_]+(?:[\s'’-][^\W\d_]+)+", text) and len(set(words)) >= RULES["min_distinct_words"]:
+            return None
+        return RULES["contact_reason"]
+    if not words:
+        return RULES["placeholder_reason"]
+    if len(set(words)) < RULES["min_distinct_words"] or sum(map(len, words)) < RULES["min_letters"]:
+        return RULES["detail_reason"]
+    return None
 
 
 CRITERIA = {
@@ -33,15 +89,18 @@ def level_for(score: int) -> str:
 def evaluate(task: Mapping, confirmed: bool = True) -> dict:
     breakdown = {}
     missing = []
+    issues = {}
     score = 0
     for criterion, fields in CRITERIA.items():
         earned = 0
         for name, weight in fields.items():
-            if str(task[name] or "").strip():
+            issue = field_issue(name, task[name])
+            if issue is None:
                 if confirmed:
                     earned += weight
             else:
                 missing.append(name)
+                issues[name] = issue
         maximum = sum(fields.values())
         breakdown[criterion] = {"earned": earned, "max": maximum}
         score += earned
@@ -50,6 +109,7 @@ def evaluate(task: Mapping, confirmed: bool = True) -> dict:
         "level": level_for(score),
         "score_breakdown": breakdown,
         "missing_fields": missing,
+        "field_issues": issues,
     }
 
 
@@ -81,3 +141,14 @@ def confirm_task(connection: sqlite3.Connection, task_id: int, updates: Mapping)
         (datetime.now(timezone.utc).isoformat(), task_id),
     )
     return recalculate_task(connection, task_id)
+
+
+def reconcile_ratings(connection: sqlite3.Connection) -> int:
+    """Refresh persisted scores with current rules without changing users' text."""
+    changed = 0
+    for row in connection.execute("SELECT * FROM tasks").fetchall():
+        score = evaluate(row, confirmed=bool(row["confirmed_at"]))["score"]
+        if score != row["score"]:
+            connection.execute("UPDATE tasks SET score = ? WHERE id = ?", (score, row["id"]))
+            changed += 1
+    return changed

@@ -10,13 +10,20 @@ const teamThemes = ["violet", "blue", "green", "orange", "pink"];
 
 export default function TeamsScreen({ teams }: TeamsScreenProps) {
   const [query, setQuery] = useState("");
+  const [interest, setInterest] = useState("");
+  const [skill, setSkill] = useState("");
+  const [technology, setTechnology] = useState("");
+  const [sort, setSort] = useState("name");
+  const choices = (field: "interests" | "skills" | "technologies") => [...new Set(teams.flatMap(team => team[field]))].sort((a, b) => a.localeCompare(b, "ru"));
+  const hasFilters = Boolean(query || interest || skill || technology || sort !== "name");
+  function resetFilters() { setQuery(""); setInterest(""); setSkill(""); setTechnology(""); setSort("name"); }
   const normalizedQuery = query.trim().toLocaleLowerCase("ru");
   const visibleTeams = teams.filter((team) =>
     [team.name, ...team.interests, ...team.skills, ...team.technologies]
       .join(" ")
       .toLocaleLowerCase("ru")
-      .includes(normalizedQuery),
-  );
+      .includes(normalizedQuery) && (!interest || team.interests.includes(interest)) && (!skill || team.skills.includes(skill)) && (!technology || team.technologies.includes(technology)),
+  ).sort((a, b) => (sort === "points" ? b.points - a.points : 0) || a.name.localeCompare(b.name, "ru"));
 
   return (
     <section className="teams-screen">
@@ -40,7 +47,14 @@ export default function TeamsScreen({ teams }: TeamsScreenProps) {
             value={query}
           />
         </label>
-        <span className="result-count">{visibleTeams.length} команд</span>
+        <span className="result-count" role="status">Найдено команд: {visibleTeams.length}</span>
+      </div>
+      <div className="team-filters" aria-label="Фильтры команд">
+        <label>Интерес<select value={interest} onChange={event => setInterest(event.target.value)}><option value="">Все интересы</option>{choices("interests").map(value => <option key={value}>{value}</option>)}</select></label>
+        <label>Навык<select value={skill} onChange={event => setSkill(event.target.value)}><option value="">Все навыки</option>{choices("skills").map(value => <option key={value}>{value}</option>)}</select></label>
+        <label>Технология<select value={technology} onChange={event => setTechnology(event.target.value)}><option value="">Все технологии</option>{choices("technologies").map(value => <option key={value}>{value}</option>)}</select></label>
+        <label>Порядок команд<select value={sort} onChange={event => setSort(event.target.value)}><option value="name">По названию</option><option value="points">Сначала больше баллов</option></select></label>
+        {hasFilters && <button type="button" className="button button--quiet button--small" onClick={resetFilters}>Сбросить фильтры</button>}
       </div>
 
       {visibleTeams.length > 0 ? (
@@ -86,7 +100,8 @@ export default function TeamsScreen({ teams }: TeamsScreenProps) {
         <div className="empty-state">
           <Icon name="search" />
           <h2>Команды не найдены</h2>
-          <p>Попробуйте изменить запрос.</p>
+          <p>Попробуйте изменить запрос или фильтры.</p>
+          {hasFilters && <button type="button" className="button button--quiet" onClick={resetFilters}>Показать все команды</button>}
         </div>
       )}
     </section>

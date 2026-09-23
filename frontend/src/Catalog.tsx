@@ -5,6 +5,7 @@ type Level = "draft" | "working" | "ready" | "priority";
 type Breakdown = Record<string, { earned: number; max: number }>;
 
 type Task = {
+  owner_user_id?: number | null;
   id: number;
   title: string;
   topic: string;
@@ -24,6 +25,21 @@ type Task = {
 };
 
 type CatalogResponse = { items: Task[]; total: number };
+export type RecommendationProfile = { interests: string[]; skills: string[]; technologies: string[] };
+
+function recommendation(task: Task, profile?: RecommendationProfile) {
+  if (!profile) return { score: 0, reasons: [] as string[] };
+  const text = [task.title, task.topic, task.context, task.need, task.expected_result, task.data].join(" ").toLocaleLowerCase("ru");
+  const reasons: string[] = [];
+  let score = 0;
+  for (const [values, weight] of [[profile.interests, 3], [profile.skills, 2], [profile.technologies, 1]] as const) {
+    for (const value of values) {
+      const term = value.trim().toLocaleLowerCase("ru");
+      if (term.length >= 2 && text.includes(term) && !reasons.includes(value)) { reasons.push(value); score += weight; }
+    }
+  }
+  return { score, reasons };
+}
 
 const levelLabels: Record<Level, string> = {
   draft: "Черновик",
@@ -76,10 +92,12 @@ function TopicIcon({ topic = "" }: { topic?: string }) {
 type CatalogProps = {
   onRespond?: (taskId: number) => void;
   onCreate?: () => void;
+  currentUserId?: number;
+  recommendationProfile?: RecommendationProfile;
   onEdit?: (taskId: number) => void;
 };
 
-export function Catalog({ onRespond, onEdit, onCreate }: CatalogProps) {
+export function Catalog({ onRespond, onEdit, onCreate, currentUserId, recommendationProfile }: CatalogProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [search, setSearch] = useState("");
   const [retry, setRetry] = useState(0);
@@ -118,7 +136,7 @@ export function Catalog({ onRespond, onEdit, onCreate }: CatalogProps) {
     .filter((task) => (!topic || task.topic === topic) && (!level || task.level === level))
     .filter((task) => !query || [task.title, task.topic, task.context, task.need, task.users, task.expected_result]
       .some((value) => value.toLocaleLowerCase("ru").includes(query)))
-    .sort((left, right) => (sort === "score_asc" ? left.score - right.score : right.score - left.score) || left.id - right.id);
+    .sort((left, right) => (sort === "recommended" ? recommendation(right, recommendationProfile).score - recommendation(left, recommendationProfile).score : 0) || (sort === "score_asc" ? left.score - right.score : right.score - left.score) || left.id - right.id);
   const hasFilters = Boolean(query || topic || level);
 
   function resetFilters() {
@@ -165,6 +183,7 @@ export function Catalog({ onRespond, onEdit, onCreate }: CatalogProps) {
           Сортировка
           <select value={sort} onChange={(event) => setSort(event.target.value)}>
             <option value="score_desc">Сначала высокий рейтинг</option>
+            {recommendationProfile && <option value="recommended">Подходящие моей команде</option>}
             <option value="score_asc">Сначала низкий рейтинг</option>
           </select>
         </label>
@@ -185,6 +204,7 @@ export function Catalog({ onRespond, onEdit, onCreate }: CatalogProps) {
           </select>
         </label>
       </section>
+      {sort === "recommended" && recommendationProfile && <p className="catalog-recommendation-info">Подбор по совпадениям с интересами, навыками и технологиями вашей команды. {Object.values(recommendationProfile).every(values => values.length === 0) ? "Заполните профиль, чтобы получить рекомендации. Пока задачи отсортированы по рейтингу." : "При равном совпадении выше задачи с большим рейтингом. Вы сами решаете, куда откликнуться."}</p>}
 
       {loading ? <p className="message" role="status">Загрузка задач…</p> : error ? (
         <div className="message catalog-error" role="alert">
@@ -212,6 +232,7 @@ export function Catalog({ onRespond, onEdit, onCreate }: CatalogProps) {
                 </div>
                 <h2>{task.title || "Без названия"}</h2>
                 <p className="catalog-task-summary">{task.need || task.context || "Описание пока не заполнено."}</p>
+                {sort === "recommended" && recommendation(task, recommendationProfile).reasons.length > 0 && <p className="catalog-match">Подходит по профилю: {recommendation(task, recommendationProfile).reasons.join(", ")}</p>}
                 <div className="catalog-readiness">
                   <div className="score"><span>Готовность задачи</span><div><strong>{task.score}</strong><span> / 100</span></div></div>
                   <progress value={task.score} max={100} aria-label={`Готовность задачи: ${task.score} из 100`} />
@@ -244,7 +265,7 @@ export function Catalog({ onRespond, onEdit, onCreate }: CatalogProps) {
                 {(onRespond || onEdit) && (
                   <div className="catalog-card-actions">
                     {onRespond && <button type="button" onClick={() => onRespond(task.id)}>Откликнуться <span aria-hidden="true">↗</span></button>}
-                    {onEdit && <button type="button" className="catalog-secondary" onClick={() => onEdit(task.id)}>Редактировать</button>}
+                    {onEdit && currentUserId !== undefined && task.owner_user_id === currentUserId && <button type="button" className="catalog-secondary" onClick={() => onEdit(task.id)}>Редактировать</button>}
                   </div>
                 )}
               </article>

@@ -2,13 +2,14 @@
 
 import json
 from contextlib import closing
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 from .db import connect, init_db
+from .auth import require_user
 
 
 PROGRESS_POINTS = 10
@@ -16,12 +17,12 @@ router = APIRouter()
 
 
 class ProposalInput(BaseModel):
-    task_id: int = Field(gt=0)
-    team_id: int = Field(gt=0)
-    idea: str = Field(min_length=1)
-    plan: str = Field(min_length=1)
-    duration: str = Field(min_length=1)
-    prototype_url: str = Field(min_length=1)
+    task_id: int = Field(gt=0, le=2**63 - 1)
+    team_id: int = Field(gt=0, le=2**63 - 1)
+    idea: str = Field(min_length=1, max_length=10000)
+    plan: str = Field(min_length=1, max_length=10000)
+    duration: str = Field(min_length=1, max_length=200)
+    prototype_url: str = Field(min_length=1, max_length=2048)
 
 
 class DecisionInput(BaseModel):
@@ -75,6 +76,7 @@ def _team(row) -> dict:
         "skills": json.loads(row["skills"]),
         "technologies": json.loads(row["technologies"]),
         "points": row["points"],
+        "owner_user_id": row["owner_user_id"],
     }
 
 
@@ -99,7 +101,7 @@ def list_teams() -> list[dict]:
 
 
 @router.get("/api/proposals")
-def list_proposals(task_id: int | None = Query(default=None, gt=0)) -> list[dict]:
+def list_proposals(task_id: int | None = Query(default=None, gt=0, le=2**63 - 1)) -> list[dict]:
     query = "SELECT * FROM proposals"
     parameters = ()
     if task_id is not None:
@@ -111,7 +113,9 @@ def list_proposals(task_id: int | None = Query(default=None, gt=0)) -> list[dict
 
 
 @router.post("/api/proposals", status_code=201)
-def create_proposal(request: ProposalInput) -> dict:
+def create_proposal(request: ProposalInput, user: dict = Depends(require_user)) -> dict:
+    if user["role"] != "team":
+        raise HTTPException(status_code=403, detail="Подавать отклик может только команда")
     values = {
         "idea": request.idea.strip(),
         "plan": request.plan.strip(),
@@ -120,17 +124,24 @@ def create_proposal(request: ProposalInput) -> dict:
     }
     if any(not value for value in values.values()):
         raise HTTPException(status_code=422, detail="Заполните все поля отклика")
-    prototype_url = urlparse(values["prototype_url"])
-    if prototype_url.scheme not in ("https", "http") or not prototype_url.netloc:
-        raise HTTPException(status_code=422, detail="Укажите ссылку на прототип с http:// или https://")
+    try:
+        raw_url = values["prototype_url"]
+        prototype_url = urlparse(raw_url)
+        if (prototype_url.scheme not in ("https", "http") or not prototype_url.hostname
+                or prototype_url.username is not None or prototype_url.password is not None
+                or "\\" in raw_url or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in raw_url)):
+            raise ValueError("Некорректная ссылка")
+        prototype_url.port  # Access validates malformed and out-of-range ports.
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Укажите корректную ссылку на прототип с http:// или https:// без логина и пароля") from None
 
     with closing(connect()) as connection, connection:
         if connection.execute(
             "SELECT 1 FROM tasks WHERE id = ? AND status = 'published'", (request.task_id,)
         ).fetchone() is None:
             raise HTTPException(status_code=404, detail="Опубликованная задача не найдена")
-        if connection.execute("SELECT 1 FROM teams WHERE id = ?", (request.team_id,)).fetchone() is None:
-            raise HTTPException(status_code=404, detail="Команда не найдена")
+        if connection.execute("SELECT 1 FROM teams WHERE id = ? AND owner_user_id = ?", (request.team_id, user["id"])).fetchone() is None:
+            raise HTTPException(status_code=403, detail="Вы можете подать отклик только от своей команды")
         cursor = connection.execute(
             """INSERT INTO proposals (task_id, team_id, idea, plan, duration, prototype_url)
                VALUES (?, ?, ?, ?, ?, ?)""",
@@ -141,12 +152,16 @@ def create_proposal(request: ProposalInput) -> dict:
 
 
 @router.patch("/api/proposals/{proposal_id}/decision")
-def decide_proposal(proposal_id: int, request: DecisionInput) -> dict:
+def decide_proposal(proposal_id: Annotated[int, Path(gt=0, le=2**63 - 1)], request: DecisionInput, user: dict = Depends(require_user)) -> dict:
+    if user["role"] != "business":
+        raise HTTPException(status_code=403, detail="Решение принимает владелец бизнес-задачи")
     with closing(connect()) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
-        row = connection.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
+        row = connection.execute("SELECT p.*, t.owner_user_id AS task_owner_id FROM proposals p JOIN tasks t ON t.id = p.task_id WHERE p.id = ?", (proposal_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Отклик не найден")
+        if row["task_owner_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Вы можете принимать решения только по своей задаче")
         if row["progress_confirmed"]:
             raise HTTPException(status_code=409, detail="Подтверждённый этап нельзя изменить")
         if row["decision"] == request.decision:
@@ -159,12 +174,16 @@ def decide_proposal(proposal_id: int, request: DecisionInput) -> dict:
 
 
 @router.post("/api/proposals/{proposal_id}/progress")
-def confirm_progress(proposal_id: int) -> dict:
+def confirm_progress(proposal_id: Annotated[int, Path(gt=0, le=2**63 - 1)], user: dict = Depends(require_user)) -> dict:
+    if user["role"] != "business":
+        raise HTTPException(status_code=403, detail="Этап подтверждает владелец бизнес-задачи")
     with closing(connect()) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
-        row = connection.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
+        row = connection.execute("SELECT p.*, t.owner_user_id AS task_owner_id FROM proposals p JOIN tasks t ON t.id = p.task_id WHERE p.id = ?", (proposal_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Отклик не найден")
+        if row["task_owner_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Вы можете подтверждать этапы только по своей задаче")
         if row["progress_confirmed"]:
             return _proposal(row)
         if row["decision"] != "selected":

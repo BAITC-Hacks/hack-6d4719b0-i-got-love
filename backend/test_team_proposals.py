@@ -4,8 +4,11 @@ import unittest
 from contextlib import closing
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from .db import connect
+from .integration import app
+from .test_support import own_seed_tasks, own_seed_team_user, register_user
 from .seed import seed_demo as seed_tasks
 from .team_proposals import (
     DecisionInput,
@@ -26,8 +29,14 @@ class TeamProposalTests(unittest.TestCase):
         os.environ["APP_DB_PATH"] = os.path.join(self.directory.name, "test.db")
         seed_tasks()
         seed_demo()
+        self.client = TestClient(app)
+        self.client.__enter__()
+        self.business = register_user(self.client)
+        own_seed_tasks(self.business)
+        self.team = own_seed_team_user(self.client)
 
     def tearDown(self):
+        self.client.__exit__(None, None, None)
         if self.previous_path is None:
             os.environ.pop("APP_DB_PATH", None)
         else:
@@ -47,19 +56,19 @@ class TeamProposalTests(unittest.TestCase):
                 plan="Проверка прототипа",
                 duration="5 дней",
                 prototype_url="https://example.com/prototype",
-            ))
+            ), user=self.team)
         self.assertEqual(len(list_proposals(task_id=7)), 25)
 
     def test_business_can_select_multiple_or_reject_and_award_once(self):
         with closing(connect()) as connection:
             task_score = connection.execute("SELECT score FROM tasks WHERE id = 7").fetchone()[0]
-        decide_proposal(1, DecisionInput(decision="selected"))
-        decide_proposal(2, DecisionInput(decision="selected"))
-        decide_proposal(3, DecisionInput(decision="rejected"))
+        decide_proposal(1, DecisionInput(decision="selected"), user=self.business)
+        decide_proposal(2, DecisionInput(decision="selected"), user=self.business)
+        decide_proposal(3, DecisionInput(decision="rejected"), user=self.business)
         self.assertEqual([item["decision"] for item in list_proposals(task_id=7) if item["id"] in (1, 2, 3)].count("selected"), 2)
 
-        first = confirm_progress(1)
-        repeated = confirm_progress(1)
+        first = confirm_progress(1, user=self.business)
+        repeated = confirm_progress(1, user=self.business)
         self.assertTrue(first["progress_confirmed"])
         self.assertTrue(repeated["progress_confirmed"])
         with closing(connect()) as connection:
@@ -70,7 +79,7 @@ class TeamProposalTests(unittest.TestCase):
 
     def test_pending_proposal_cannot_receive_points(self):
         with self.assertRaises(HTTPException) as raised:
-            confirm_progress(1)
+            confirm_progress(1, user=self.business)
         self.assertEqual(raised.exception.status_code, 409)
         with closing(connect()) as connection:
             points = connection.execute("SELECT points FROM teams WHERE id = 1").fetchone()[0]
@@ -85,7 +94,7 @@ class TeamProposalTests(unittest.TestCase):
                 plan="Собрать прототип",
                 duration="5 дней",
                 prototype_url="https://",
-            ))
+            ), user=self.team)
         self.assertEqual(raised.exception.status_code, 422)
 
 

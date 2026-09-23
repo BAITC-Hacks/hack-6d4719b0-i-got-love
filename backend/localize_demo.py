@@ -84,12 +84,12 @@ def localize_demo_data() -> int:
         for task_id, fields in LEGACY_TASK_FIELDS.items():
             for field, (original, translated) in fields.items():
                 changed += connection.execute(
-                    f"UPDATE tasks SET {field} = ? WHERE id = ? AND {field} = ?",
+                    f"UPDATE tasks SET {field} = ? WHERE id = ? AND {field} = ? AND owner_user_id IS NULL",
                     (translated, task_id, original),
                 ).rowcount
         for team_id, fields in LEGACY_TEAM_FIELDS.items():
             row = connection.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
-            if row is None:
+            if row is None or row["owner_user_id"] is not None:
                 continue
             for field, (original, translated) in fields.items():
                 current = row[field]
@@ -105,7 +105,8 @@ def localize_demo_data() -> int:
         for proposal_id, placeholder in LEGACY_PROTOTYPE_URLS.items():
             changed += connection.execute(
                 """UPDATE proposals SET prototype_url = ''
-                   WHERE id = ? AND task_id = 7 AND team_id = ? AND prototype_url = ?""",
+                   WHERE id = ? AND task_id = 7 AND team_id = ? AND prototype_url = ?
+                     AND EXISTS (SELECT 1 FROM tasks WHERE tasks.id = proposals.task_id AND tasks.owner_user_id IS NULL)""",
                 (proposal_id, proposal_id, placeholder),
             ).rowcount
     return changed

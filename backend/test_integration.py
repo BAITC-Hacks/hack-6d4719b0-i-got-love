@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from backend.integration import app
 from backend.seed import seed_demo as seed_tasks
 from backend.team_proposals import seed_demo as seed_teams
+from backend.test_support import own_seed_tasks, own_seed_team_user, register_user
 from task_builder.server import TEXT_FIELDS
 
 
@@ -25,8 +26,13 @@ class IntegrationTests(unittest.TestCase):
         seed_teams()
         self.client = TestClient(app)
         self.client.__enter__()
+        self.business = register_user(self.client)
+        own_seed_tasks(self.business)
+        self.team_client = TestClient(app)
+        self.team = own_seed_team_user(self.team_client)
 
     def tearDown(self):
+        self.team_client.close()
         self.client.__exit__(None, None, None)
         if self.builder_path is not None:
             os.environ["TASK_BUILDER_DB_PATH"] = self.builder_path
@@ -34,7 +40,8 @@ class IntegrationTests(unittest.TestCase):
         self.directory.cleanup()
 
     def request(self, method, path, status=200, **kwargs):
-        response = self.client.request(method, path, **kwargs)
+        client = self.team_client if method == "POST" and path == "/api/proposals" else self.client
+        response = client.request(method, path, **kwargs)
         self.assertEqual(response.status_code, status, response.text)
         return response.json()
 
