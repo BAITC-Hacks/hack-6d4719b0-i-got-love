@@ -11,7 +11,7 @@ The task fields match `TEAM_PLAN.md`. Catalog responses add the computed
 `interaction_format` contribute 5 each. Blank fields earn zero. These response
 additions are proposed here for team review before integration.
 
-Planned catalog routes:
+Available catalog routes:
 
 - `GET /api/catalog?sort=score_desc&topic=...&level=...` — published tasks only.
   `sort` accepts `score_desc` or `score_asc`; omitted filters include all topics
@@ -38,6 +38,11 @@ The React catalog is in `frontend/src/Catalog.tsx`. Run `npm install` and
 port 8000. The component accepts an optional `onRespond(taskId)` callback for
 the proposal screen owned by `feat/team-proposals`. It does not filter or
 disable that callback by score.
+
+When integrating the shared application from PR #3, replace its
+`src/screens/CatalogScreen.tsx` placeholder with this catalog component. The
+component imports its own scoped CSS; the shared navigation and task-specific
+proposal screen remain in PR #3's area.
 
 Example item in either catalog response (abridged task text):
 

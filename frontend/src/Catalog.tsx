@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import "./styles.css";
 
 type Level = "draft" | "working" | "ready" | "priority";
 type Breakdown = Record<string, { earned: number; max: number }>;
@@ -97,7 +98,7 @@ export function Catalog({ onRespond }: { onRespond?: (taskId: number) => void })
   }, [sort, topic, level]);
 
   return (
-    <main className="catalog">
+    <section className="catalog">
       <header className="catalog-header">
         <p className="eyebrow">Задачи для команд</p>
         <h1>Каталог задач</h1>
@@ -164,6 +165,6 @@ export function Catalog({ onRespond }: { onRespond?: (taskId: number) => void })
           </div>
         </>
       )}
-    </main>
+    </section>
   );
 }
