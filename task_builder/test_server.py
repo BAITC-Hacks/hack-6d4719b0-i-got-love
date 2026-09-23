@@ -1,9 +1,11 @@
 """Focused checks for the builder flow and AI fallback."""
 
 import os
+import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 
@@ -65,6 +67,15 @@ class BuilderTests(unittest.TestCase):
         ]}
         with self.assertRaises(ValueError):
             server.validate_questions(invalid)
+
+    def test_shared_database_is_used_when_available(self):
+        connection = sqlite3.connect(":memory:")
+        shared = SimpleNamespace(init_db=Mock(), connect=Mock(return_value=connection))
+        with patch.object(server, "shared_db", shared), patch.dict(os.environ, {}, clear=True):
+            self.assertIs(server.connect(), connection)
+        shared.init_db.assert_called_once_with()
+        shared.connect.assert_called_once_with()
+        connection.close()
 
 
 if __name__ == "__main__":

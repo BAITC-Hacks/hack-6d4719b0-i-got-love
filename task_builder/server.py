@@ -12,6 +12,11 @@ from urllib.request import Request, urlopen
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+if (Path(__file__).resolve().parents[1] / "backend" / "db.py").exists():
+    from backend import db as shared_db
+else:
+    shared_db = None
+
 
 TEXT_FIELDS = (
     "title", "topic", "context", "need", "users", "data", "constraints",
@@ -64,6 +69,9 @@ def db_path() -> Path:
 
 
 def connect() -> sqlite3.Connection:
+    if shared_db is not None and "TASK_BUILDER_DB_PATH" not in os.environ:
+        shared_db.init_db()
+        return shared_db.connect()
     connection = sqlite3.connect(db_path())
     connection.row_factory = sqlite3.Row
     connection.execute("""CREATE TABLE IF NOT EXISTS tasks (
