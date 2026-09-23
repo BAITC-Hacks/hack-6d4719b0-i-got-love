@@ -3,3 +3,8 @@ AGENTS.override.md
 CLAUDE.md
 .claude/
 NOTES.md
+backend/app.db
+__pycache__/
+.venv/
+frontend/node_modules/
+frontend/dist/
