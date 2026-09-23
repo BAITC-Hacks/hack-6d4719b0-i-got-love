@@ -31,4 +31,3 @@ button.top-avatar { border: 0; cursor: pointer; font: inherit; }
 .breadcrumbs a:hover { color: #7059ef; }
 .auth-screen button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width:600px) { .auth-card { padding: 23px 19px; } .auth-gate { padding: 25px 21px; } .profile-summary { gap: 13px; } .profile-summary-avatar { width: 48px; height: 48px; font-size: 18px; } }
-
