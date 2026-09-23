@@ -67,6 +67,13 @@ class BuilderTests(unittest.TestCase):
         ]}
         with self.assertRaises(ValueError):
             server.validate_questions(invalid)
+        for field in ([], {}, None, 42):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                server.validate_questions({"questions": [
+                    {"field": field, "text": "Что нужно?"},
+                    {"field": "users", "text": "Для кого?"},
+                    {"field": "data", "text": "Какие данные доступны?"},
+                ]})
 
     def test_shared_database_is_used_when_available(self):
         connection = sqlite3.connect(":memory:")

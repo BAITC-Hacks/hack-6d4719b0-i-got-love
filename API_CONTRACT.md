@@ -1,77 +1,116 @@
-# API contract for integration
+# Lovelab API
 
-This branch owns the shared SQLite schema, rating and catalog. Other modules can
-import `backend.db.connect` and `backend.db.init_db`. Set `APP_DB_PATH` to use a
-different database. The internal `tasks.confirmed_at` column records when the
-business confirmed the card; an unconfirmed draft does not earn points.
+Entry point: `backend.integration:app`. All routes are same-origin `/api` endpoints.
+Interactive OpenAPI documentation is available at `/docs` while the server runs.
+The demo has no authentication or per-user ownership; all participants share one workspace.
 
-The task fields match `TEAM_PLAN.md`. Catalog responses add the computed
-`level`, `score_breakdown`, and `missing_fields`. For the two combined criteria,
-`context` and `need` contribute 10 points each; `contact` and
-`interaction_format` contribute 5 each. Blank fields earn zero. These response
-additions are proposed here for team review before integration.
+## Models
 
-Available catalog routes:
+`Task` contains `id`, `title`, `topic`, `context`, `need`, `users`, `data`,
+`constraints`, `expected_result`, `success_criteria`, `contact`,
+`interaction_format`, `status` (`draft` / `published`) and `score` (0–100).
 
-- `GET /api/catalog?sort=score_desc&topic=...&level=...` — published tasks only.
-  `sort` accepts `score_desc` or `score_asc`; omitted filters include all topics
-  and levels. No minimum score applies.
-- `GET /api/catalog/{task_id}` — one published task, regardless of score.
+Builder responses include `confirmed_at`, `level`, `score_breakdown`,
+`missing_fields` and `rating_preview`. The preview uses the same weights without
+requiring confirmation; it is not the confirmed score. Catalog responses omit
+`confirmed_at` and `rating_preview` but include the other rating fields.
 
-`GET /api/catalog` returns `{ "items": [...], "total": 5 }`; the second route
-returns one item. Both routes are implemented in `backend.main`. The level
-values are `draft`, `working`, `ready`, and `priority` for scores 0–39,
-40–69, 70–89, and 90–100.
+`Team`: `id`, `name`, `interests`, `skills`, `technologies`, `points`.
+The three descriptive collections are arrays of strings in API responses.
 
-The task builder should call `backend.rating.confirm_task(connection, task_id,
-updates)` inside its transaction after business confirmation or a confirmed
-edit. It saves approved fields, sets `confirmed_at`, and recalculates `score`
-atomically. Its `updates` keys must come from the base Task text fields.
-Publishing and team proposals must not apply a score threshold.
+`Proposal`: `id`, `task_id`, `team_id`, `idea`, `plan`, `duration`,
+`prototype_url`, `decision` (`pending` / `selected` / `rejected`),
+`progress_confirmed` (boolean).
 
-For a local demo: install `requirements.txt`, run `python -m backend.seed`, then
-run `uvicorn backend.main:app --reload`. Seeding adds five drafts and five
-published cards only if the database has no tasks.
+## Builder
 
-The React catalog is in `frontend/src/Catalog.tsx`. Run `npm install` and
-`npm run dev` from `frontend`; Vite proxies `/api` to the FastAPI server on
-port 8000. The component accepts an optional `onRespond(taskId)` callback for
-the proposal screen owned by `feat/team-proposals`. It does not filter or
-disable that callback by score.
+| Method | Route | Body / behavior |
+| --- | --- | --- |
+| POST | `/api/task-builder/questions` | `{description}` → `{questions, source, warning}` |
+| POST | `/api/task-builder/drafts` | `{description, answers: {field: text}}` → new Task; HTTP 201 |
+| GET | `/api/task-builder/tasks` | `{items, total}`, newest first; optional `status=draft` or `published` |
+| GET | `/api/task-builder/tasks/{id}` | Full Task including rating preview |
+| PUT | `/api/task-builder/tasks/{id}` | Full text-field card, draft only; resets score and confirmation |
+| POST | `/api/task-builder/tasks/{id}/confirm` | Confirms current draft; requires nonblank title; recalculates score |
+| POST | `/api/task-builder/tasks/{id}/publish` | Requires confirmation; repeated publish is idempotent |
+| PUT | `/api/task-builder/tasks/{id}/confirmed` | Full, explicitly approved text-field card, published only; atomically recalculates score |
 
-When integrating the shared application from PR #3, replace its
-`src/screens/CatalogScreen.tsx` placeholder with this catalog component. The
-component imports its own scoped CSS; the shared navigation and task-specific
-proposal screen remain in PR #3's area.
+The full card body contains all eleven Task text fields; omitted fields default
+to empty strings. `id`, `status`, `score` and timestamps are controlled by the
+server. Published edits preserve status and linked proposals. Blank titles at confirmation
+return HTTP 422 without changing the saved card. Using a draft-only action on
+a published card (or the reverse) returns HTTP 409.
 
-Example item in either catalog response (abridged task text):
+Questions contain distinct `field` names and nonempty `text` values. The server
+validates 3–5 questions and falls back to five local questions if the external
+provider is unavailable or malformed. No answers are generated by AI.
+
+## Catalog
+
+- `GET /api/catalog?sort=score_desc&topic=...&level=...` → `{items, total}`.
+- `GET /api/catalog/{id}` → one published Task, or HTTP 404.
+
+`sort`: `score_desc` (default) or `score_asc`. Equal scores are ordered by ID.
+`topic`: case-insensitive exact match. `level`: `draft`, `working`, `ready`, or
+`priority`. Invalid sort / level values return HTTP 422. Omitted filters include
+all published tasks; no minimum score applies. The current frontend fetches
+the complete catalog and performs its search and filtering locally.
+
+Weights: context 10, need 10, data 20, expected_result 15, success_criteria 15,
+constraints 10, users 10, contact 5, interaction_format 5. Whitespace-only fields
+earn zero. Title and topic are not scored. Only confirmed cards earn points.
+Levels: 0–39 draft, 40–69 working, 70–89 ready, 90–100 priority.
+
+Example rating fragment:
 
 ```json
 {
-  "id": 1,
-  "title": "Reduce support response time",
-  "topic": "Support",
-  "context": "Response times rose last month",
-  "need": "Prioritize incoming requests",
-  "users": "Support agents",
-  "data": "Anonymized ticket history",
-  "constraints": "No personal data in prototypes",
-  "expected_result": "A triage prototype",
-  "success_criteria": "",
-  "contact": "support@example.test",
-  "interaction_format": "",
-  "status": "published",
-  "score": 80,
-  "level": "ready",
+  "score": 30,
+  "level": "draft",
   "score_breakdown": {
     "context_and_need": {"earned": 20, "max": 20},
-    "data": {"earned": 20, "max": 20},
-    "expected_result": {"earned": 15, "max": 15},
+    "data": {"earned": 0, "max": 20},
+    "expected_result": {"earned": 0, "max": 15},
     "success_criteria": {"earned": 0, "max": 15},
-    "constraints": {"earned": 10, "max": 10},
+    "constraints": {"earned": 0, "max": 10},
     "users": {"earned": 10, "max": 10},
-    "business_contact": {"earned": 5, "max": 10}
+    "business_contact": {"earned": 0, "max": 10}
   },
-  "missing_fields": ["success_criteria", "interaction_format"]
+  "missing_fields": ["data", "expected_result", "success_criteria", "constraints", "contact", "interaction_format"]
 }
 ```
+
+## Teams and proposals
+
+| Method | Route | Body / behavior |
+| --- | --- | --- |
+| GET | `/api/teams` | Array of profiles, including current points |
+| GET | `/api/proposals?task_id=7` | Array, newest first; omit task_id for all proposals |
+| POST | `/api/proposals` | `{task_id, team_id, idea, plan, duration, prototype_url}`; HTTP 201 |
+| PATCH | `/api/proposals/{id}/decision` | `{decision: "selected"}` or `{decision: "rejected"}` |
+| POST | `/api/proposals/{id}/progress` | Confirms the selected proposal's stage and awards +10 once |
+
+All proposal text fields must be nonblank; the prototype URL must use HTTP(S)
+and have a host. The team and published task must exist. No limit on proposals
+or selected teams is applied; low task ratings do not block submission.
+
+A pending decision can become selected or rejected. Repeating the same decision
+before stage confirmation is idempotent; changing a final decision returns
+HTTP 409. Progress for a pending or rejected proposal returns HTTP 409.
+Repeating progress confirmation returns the confirmed proposal without another
+award. A confirmed stage locks the decision. Awarding points and marking the
+stage use one `BEGIN IMMEDIATE` SQLite transaction, including concurrent calls.
+Task scores are not changed by team progress.
+
+## Storage and runtime
+
+`backend.db.init_db()` creates the schema; `backend.db.connect()` enables foreign
+keys. `APP_DB_PATH` selects the database (default `backend/app.db`). For the shared
+application, leave the legacy standalone `TASK_BUILDER_DB_PATH` unset.
+
+`GET /api/health` checks database availability and returns `{"status":"ok"}`.
+The integrated server serves the built frontend at `/` and its assets at
+`/assets`. Build before starting the server. Unknown API endpoints return 404.
+
+Run `python -m unittest discover -v` with the development dependencies installed
+to exercise the HTTP contracts, recalculation, invalid transitions and races.

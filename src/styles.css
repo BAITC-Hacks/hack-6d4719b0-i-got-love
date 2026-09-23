@@ -197,3 +197,30 @@ h1 { font: 800 clamp(28px, 3vw, 38px)/1.18 "Segoe UI", sans-serif; letter-spacin
   .task-summary { align-items: flex-start; }
   .status-pill { font-size: 8px; padding: 5px 7px; }
 }
+
+/* Shared interaction and layout rules for the integrated workspace. */
+.nav-link { text-decoration: none; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+:where(button, a, select, input, textarea, summary):focus-visible { outline: 3px solid #8b7ce8; outline-offset: 3px; }
+.skip-link { position: fixed; top: -80px; left: 16px; z-index: 10; background: #fff; color: #5648d1; padding: 12px; border-radius: 8px; }
+.skip-link:focus { top: 12px; }
+.proposal-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.task-picker { display: grid; gap: 8px; color: #646779; font-size: 13px; font-weight: 600; margin-bottom: 28px; }
+.task-picker select { font: inherit; color: #343749; border: 1px solid #dedfea; border-radius: 10px; padding: 12px; width: 100%; background: #fff; }
+.page-content { overflow-wrap: anywhere; }
+.proposal-copy p, .proposal-team > div > span { font-size: 13px; }
+.proposal-meta, .team-card-footer strong, .team-card-footer span, .tag { font-size: 12px; }
+.team-name-block h2, .proposal-team h2 { font-size: 16px; }
+.team-name-block > span { font-size: 12px; }
+.team-card-section h3, .proposal-copy h3 { font-size: 11px; }
+.section-description, .search-field input { font-size: 14px; }
+@media (max-width: 480px) {
+  .page-content { padding: 26px 14px 40px; }
+  .topbar { padding: 0 14px; }
+  .breadcrumbs > span { display: none; }
+  .section-heading { gap: 12px; flex-wrap: wrap; }
+  .proposal-card-header { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+  .filter-tabs { flex-wrap: wrap; }
+  .proposal-stats { gap: 14px; }
+  .heading-stat { margin-left: 0; }
+}

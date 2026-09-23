@@ -12,6 +12,7 @@ interface ProposalsScreenProps {
   proposals: Proposal[];
   taskId: number;
   taskTitle: string;
+  busy?: boolean;
   onAddProposal: (proposal: NewProposal) => Promise<void>;
   onConfirmProgress: (proposalId: number) => void;
   onDecideProposal: (proposalId: number, decision: Exclude<ProposalDecision, "pending">) => void;
@@ -37,6 +38,7 @@ export default function ProposalsScreen({
   proposals,
   taskId,
   taskTitle,
+  busy = false,
   onAddProposal,
   onConfirmProgress,
   onDecideProposal,
@@ -48,6 +50,7 @@ export default function ProposalsScreen({
   const [plan, setPlan] = useState("");
   const [duration, setDuration] = useState("");
   const [prototypeUrl, setPrototypeUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const filteredProposals = proposals.filter((proposal) => filter === "all" || proposal.decision === filter);
   const pendingCount = proposals.filter((proposal) => proposal.decision === "pending").length;
@@ -56,8 +59,9 @@ export default function ProposalsScreen({
 
   async function submitProposal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!teamId) return;
+    if (!teamId || submitting) return;
 
+    setSubmitting(true);
     try {
       await onAddProposal({
         task_id: taskId,
@@ -75,6 +79,8 @@ export default function ProposalsScreen({
       setFilter("all");
     } catch {
       // The app-level error message keeps the form open so the proposal can be retried.
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -86,7 +92,7 @@ export default function ProposalsScreen({
           <h1>Предложения команд</h1>
           <p className="section-description">Сравните идеи и вручную выберите команды для задачи.</p>
         </div>
-        <button className="button button--primary" onClick={() => setFormOpen((open) => !open)} type="button">
+        <button disabled={!teams.length || submitting} className="button button--primary" onClick={() => setFormOpen((open) => !open)} type="button">
           <span aria-hidden="true">＋</span> Добавить отклик
         </button>
       </div>
@@ -99,9 +105,11 @@ export default function ProposalsScreen({
         </div>
         <span className="status-pill status-pill--published">Опубликована</span>
       </article>
+      {!teams.length && <p className="app-error" role="status">Команд пока нет. Для демонстрации подготовьте профили команд по инструкции запуска.</p>}
 
       {formOpen && (
         <form className="proposal-form" onSubmit={(event) => void submitProposal(event)}>
+          <fieldset disabled={submitting}>
           <div className="form-heading">
             <div>
               <h2>Новый отклик</h2>
@@ -135,8 +143,9 @@ export default function ProposalsScreen({
           </div>
           <div className="form-actions">
             <button className="button button--quiet" onClick={() => setFormOpen(false)} type="button">Отмена</button>
-            <button className="button button--primary" type="submit">Отправить отклик</button>
+            <button disabled={!idea.trim() || !plan.trim() || !duration.trim() || !prototypeUrl.trim()} className="button button--primary" type="submit">{submitting ? "Отправка…" : "Отправить отклик"}</button>
           </div>
+          </fieldset>
         </form>
       )}
 
@@ -207,12 +216,12 @@ export default function ProposalsScreen({
                 <div className="proposal-actions">
                   {proposal.decision === "pending" && (
                     <>
-                      <button className="button button--quiet button--small" onClick={() => onDecideProposal(proposal.id, "rejected")} type="button">Отклонить</button>
-                      <button className="button button--primary button--small" onClick={() => onDecideProposal(proposal.id, "selected")} type="button">Выбрать команду</button>
+                      <button disabled={busy} className="button button--quiet button--small" onClick={() => onDecideProposal(proposal.id, "rejected")} type="button">Отклонить</button>
+                      <button disabled={busy} className="button button--primary button--small" onClick={() => onDecideProposal(proposal.id, "selected")} type="button">Выбрать команду</button>
                     </>
                   )}
                   {proposal.decision === "selected" && !proposal.progress_confirmed && (
-                    <button className="button button--progress button--small" onClick={() => onConfirmProgress(proposal.id)} type="button">
+                    <button disabled={busy} className="button button--progress button--small" onClick={() => onConfirmProgress(proposal.id)} type="button">
                       Подтвердить этап <span>+{PROGRESS_POINTS} баллов</span>
                     </button>
                   )}
