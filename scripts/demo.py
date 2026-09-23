@@ -18,10 +18,12 @@ def main():
 
     from backend.seed import seed_demo as seed_tasks
     from backend.team_proposals import seed_demo as seed_teams
+    from backend.localize_demo import localize_demo_data
     import uvicorn
 
     seed_tasks()
     seed_teams()
+    localize_demo_data()
     print(f"\nLovelab → http://{args.host}:{args.port}\n", flush=True)
     uvicorn.run("backend.integration:app", host=args.host, port=args.port)
 

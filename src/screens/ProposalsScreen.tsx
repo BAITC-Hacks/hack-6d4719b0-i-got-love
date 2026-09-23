@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import Icon from "../components/Icon";
 import {
   PROGRESS_POINTS,
   type NewProposal,
@@ -32,6 +33,16 @@ const decisionLabels: Record<ProposalDecision, string> = {
   selected: "Выбрана бизнесом",
   rejected: "Отклонена",
 };
+
+function prototypeLink(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol) || url.hostname === "example.com") return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
 
 export default function ProposalsScreen({
   teams,
@@ -93,12 +104,12 @@ export default function ProposalsScreen({
           <p className="section-description">Сравните идеи и вручную выберите команды для задачи.</p>
         </div>
         <button disabled={!teams.length || submitting} className="button button--primary" onClick={() => setFormOpen((open) => !open)} type="button">
-          <span aria-hidden="true">＋</span> Добавить отклик
+          <Icon name="plus" size={18} /> Добавить отклик
         </button>
       </div>
 
       <article className="task-summary">
-        <div className="task-summary-icon" aria-hidden="true">▤</div>
+        <div className="task-summary-icon"><Icon name="catalog" size={23} /></div>
         <div>
           <span className="task-summary-label">ОПУБЛИКОВАННАЯ ЗАДАЧА</span>
           <h2>{taskTitle}</h2>
@@ -175,6 +186,7 @@ export default function ProposalsScreen({
       <div className="proposal-list">
         {filteredProposals.map((proposal, index) => {
           const team = teams.find((item) => item.id === proposal.team_id);
+          const prototype = prototypeLink(proposal.prototype_url);
           if (!team) return null;
 
           return (
@@ -207,10 +219,10 @@ export default function ProposalsScreen({
 
               <div className="proposal-card-footer">
                 <div className="proposal-meta">
-                  <span><span aria-hidden="true">◷</span> {proposal.duration}</span>
-                  <a href={proposal.prototype_url} rel="noreferrer" target="_blank">
-                    Прототип <span aria-hidden="true">↗</span>
-                  </a>
+                  <span><Icon name="clock" size={16} /> {proposal.duration}</span>
+                  {prototype ? <a href={prototype} rel="noopener noreferrer" target="_blank" title="Открыть прототип в новой вкладке">
+                    Прототип <Icon name="external" size={14} />
+                  </a> : <span>Прототип не добавлен</span>}
                   <span className="team-points"><span aria-hidden="true">✦</span> {team.points} баллов</span>
                 </div>
                 <div className="proposal-actions">
@@ -235,7 +247,7 @@ export default function ProposalsScreen({
         })}
         {filteredProposals.length === 0 && (
           <div className="empty-state">
-            <span aria-hidden="true">◷</span>
+            <Icon name="clock" size={16} />
             <h2>Здесь пока пусто</h2>
             <p>Предложения выбранного статуса появятся в этом списке.</p>
           </div>

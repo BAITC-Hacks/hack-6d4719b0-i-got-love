@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 with tempfile.TemporaryDirectory(prefix="lovelab-e2e-") as directory:
     os.environ["APP_DB_PATH"] = str(Path(directory) / "test.db")
     os.environ.pop("TASK_BUILDER_DB_PATH", None)
-    for name in ("AI_API_URL", "AI_API_KEY", "AI_MODEL"):
+    for name in ("AI_API_URL", "AI_API_KEY", "AI_MODEL", "OLLAMA_MODEL", "OLLAMA_BASE_URL"):
         os.environ.pop(name, None)
     from backend.seed import seed_demo as seed_tasks
     from backend.team_proposals import seed_demo as seed_teams

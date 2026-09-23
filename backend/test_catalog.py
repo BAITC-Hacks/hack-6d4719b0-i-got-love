@@ -52,7 +52,7 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(count, 1)
 
     def test_topic_and_level_filters(self):
-        result = list_catalog(sort="score_desc", topic="education", level="working")
+        result = list_catalog(sort="score_desc", topic="образование", level="working")
         self.assertEqual([item["id"] for item in result["items"]], [8])
         self.assertEqual(result["total"], 1)
 

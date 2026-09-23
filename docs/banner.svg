@@ -1,13 +1,57 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="380" viewBox="0 0 1280 380" role="img" aria-labelledby="title desc">
-  <title id="title">lovelab — От бизнес-задачи к командному результату</title>
-  <desc id="desc">Открытый каталог, прозрачный рейтинг и ручной выбор команд.</desc>
-  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#17142e"/><stop offset="1" stop-color="#342463"/></linearGradient><linearGradient id="bar"><stop stop-color="#a699ff"/><stop offset="1" stop-color="#6d5aeb"/></linearGradient></defs>
-  <rect width="1280" height="380" rx="24" fill="url(#bg)"/>
-  <circle cx="1200" cy="20" r="240" fill="#7465e8" opacity=".10"/><circle cx="1130" cy="440" r="250" fill="#b7a9ff" opacity=".06"/>
-  <rect x="56" y="48" width="46" height="46" rx="14" fill="#8270ff"/><text x="79" y="80" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" font-weight="700" fill="white">L</text>
-  <text x="118" y="80" font-family="Arial,sans-serif" font-size="32" font-weight="700" fill="white">lovelab</text>
-  <text x="57" y="160" font-family="Arial,sans-serif" font-size="43" font-weight="700" fill="white">От бизнес-задачи</text><text x="57" y="215" font-family="Arial,sans-serif" font-size="43" font-weight="700" fill="white">к командному результату.</text>
-  <text x="58" y="264" font-family="Arial,sans-serif" font-size="19" fill="#c6bfdf">Понятные задачи. Открытый выбор. Подтверждённый прогресс.</text>
-  <text x="58" y="331" font-family="Arial,sans-serif" font-size="13" letter-spacing="2" fill="#a698eb">AI SANA HACKATHON  /  WORKING MVP</text>
-  <g transform="translate(875 63)"><rect width="340" height="256" rx="20" fill="#ffffff" fill-opacity=".07" stroke="#ffffff" stroke-opacity=".15"/><text x="28" y="43" font-family="Arial,sans-serif" font-size="13" letter-spacing="1" fill="#c5bdf0">ГОТОВНОСТЬ К РАБОТЕ</text><text x="28" y="117" font-family="Arial,sans-serif" font-size="62" font-weight="700" fill="#ffffff">100<tspan font-size="22" font-weight="400" fill="#afa6d2"> / 100</tspan></text><rect x="28" y="141" width="284" height="8" rx="4" fill="url(#bar)"/><text x="28" y="182" font-family="Arial,sans-serif" font-size="16" fill="#d6cfef">Бизнес подтверждает карточку.</text><text x="28" y="211" font-family="Arial,sans-serif" font-size="16" fill="#d6cfef">Команда выбирает задачу.</text></g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="480" viewBox="0 0 1280 480" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Lovelab — задача находит свою команду</title>
+  <desc id="desc">Бизнес уточняет задачу, команды предлагают решения. Карточка готовности 80 из 100 и отдельная награда команде: 10 баллов за подтверждённый этап.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1280" y2="480" gradientUnits="userSpaceOnUse"><stop stop-color="#faf9ff"/><stop offset="1" stop-color="#eeebfc"/></linearGradient>
+    <linearGradient id="violet" x1="834" y1="51" x2="1209" y2="455" gradientUnits="userSpaceOnUse"><stop stop-color="#8873fc"/><stop offset="1" stop-color="#7059ef"/></linearGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="160%"><feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#352773" flood-opacity=".12"/></filter>
+    <clipPath id="bounds"><rect width="1280" height="480" rx="28"/></clipPath>
+  </defs>
+  <g clip-path="url(#bounds)">
+    <rect width="1280" height="480" rx="28" fill="url(#paper)"/>
+    <circle cx="1131" cy="231" r="266" fill="#e4defb"/>
+    <circle cx="1131" cy="231" r="214" stroke="#faf9ff" stroke-width="1.5"/>
+    <circle cx="1131" cy="231" r="301" stroke="#dcd5f8" stroke-width="1.5"/>
+    <rect x="58" y="47" width="45" height="45" rx="14" fill="#7059ef"/>
+    <path d="M70 69c0-4.8 6.2-7.1 10.5-1.9C84.8 61.9 91 64.2 91 69c0 5.1-10.5 12-10.5 12S70 74.1 70 69Z" fill="white"/>
+    <text x="118" y="79" fill="#262238" font-family="Arial,Helvetica,sans-serif" font-size="30" font-weight="700" letter-spacing="-1">lovelab<tspan fill="#7059ef">.</tspan></text>
+    <rect x="271" y="56" width="169" height="27" rx="13.5" fill="#eee9fc"/>
+    <text x="355.5" y="74" text-anchor="middle" fill="#7059ef" font-family="Arial,Helvetica,sans-serif" font-size="11" font-weight="700" letter-spacing="1.5">HACKALEM · AI SANA</text>
+    <text x="57" y="175" fill="#262238" font-family="Arial,Helvetica,sans-serif" font-size="57" font-weight="700" letter-spacing="-2">Задача находит</text>
+    <text x="57" y="242" fill="#7059ef" font-family="Arial,Helvetica,sans-serif" font-size="57" font-weight="700" letter-spacing="-2">свою команду.</text>
+    <text x="60" y="293" fill="#6c667f" font-family="Arial,Helvetica,sans-serif" font-size="19">Уточняйте потребности. Предлагайте решения.</text>
+    <text x="60" y="322" fill="#6c667f" font-family="Arial,Helvetica,sans-serif" font-size="19">Подтверждайте результат вместе.</text>
+    <g font-family="Arial,Helvetica,sans-serif" font-size="12" font-weight="700" fill="#514a65">
+      <rect x="58" y="380" width="152" height="38" rx="19" fill="white" stroke="#e6e1f0"/>
+      <circle cx="79" cy="399" r="4" fill="#7059ef"/><text x="93" y="404">Открытые задачи</text>
+      <rect x="220" y="380" width="154" height="38" rx="19" fill="white" stroke="#e6e1f0"/>
+      <circle cx="241" cy="399" r="4" fill="#7059ef"/><text x="255" y="404">Понятный рейтинг</text>
+      <rect x="384" y="380" width="143" height="38" rx="19" fill="white" stroke="#e6e1f0"/>
+      <circle cx="405" cy="399" r="4" fill="#7059ef"/><text x="419" y="404">Ручной выбор</text>
+    </g>
+    <g transform="rotate(7 1015 243)"><rect x="862" y="68" width="311" height="334" rx="24" fill="url(#violet)"/></g>
+    <g filter="url(#shadow)">
+      <rect x="808" y="79" width="354" height="299" rx="22" fill="white"/>
+      <rect x="830" y="101" width="95" height="25" rx="12.5" fill="#f1edff"/>
+      <text x="877.5" y="118" text-anchor="middle" fill="#7059ef" font-family="Arial,Helvetica,sans-serif" font-size="11" font-weight="700">ПОДДЕРЖКА</text>
+      <circle cx="1131" cy="114" r="3" fill="#c8c2d6"/><circle cx="1119" cy="114" r="3" fill="#c8c2d6"/>
+      <text x="830" y="166" fill="#262238" font-family="Arial,Helvetica,sans-serif" font-size="24" font-weight="700" letter-spacing="-.5">Быстрая поддержка</text>
+      <text x="830" y="193" fill="#858092" font-family="Arial,Helvetica,sans-serif" font-size="13">Сократить время первого ответа</text>
+      <line x1="830" y1="217" x2="1140" y2="217" stroke="#f0edf5"/>
+      <text x="830" y="269" fill="#262238" font-family="Arial,Helvetica,sans-serif" font-size="40" font-weight="700">80<tspan fill="#a29bac" font-size="18" font-weight="400"> / 100</tspan></text>
+      <rect x="1052" y="241" width="88" height="29" rx="14.5" fill="#ede8ff"/>
+      <text x="1096" y="260" text-anchor="middle" fill="#7059ef" font-family="Arial,Helvetica,sans-serif" font-size="12" font-weight="700">Готовая</text>
+      <rect x="830" y="290" width="310" height="7" rx="3.5" fill="#f0edf7"/>
+      <rect x="830" y="290" width="248" height="7" rx="3.5" fill="#7059ef"/>
+      <path d="m831 325 4 4 8-9" stroke="#7059ef" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="852" y="330" fill="#6c667f" font-family="Arial,Helvetica,sans-serif" font-size="12">Сведения подтверждены бизнесом</text>
+    </g>
+    <g filter="url(#shadow)">
+      <rect x="746" y="349" width="302" height="88" rx="18" fill="#262238"/>
+      <rect x="764" y="367" width="52" height="52" rx="16" fill="#7059ef"/>
+      <text x="790" y="401" text-anchor="middle" fill="white" font-family="Arial,Helvetica,sans-serif" font-size="23" font-weight="700">+10</text>
+      <text x="832" y="386" fill="white" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="700">Этап подтверждён</text>
+      <text x="832" y="409" fill="#b7b1c8" font-family="Arial,Helvetica,sans-serif" font-size="12">Баллы за результат команды</text>
+    </g>
+  </g>
 </svg>

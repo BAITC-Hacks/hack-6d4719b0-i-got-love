@@ -18,7 +18,7 @@ from task_builder.server import TEXT_FIELDS
 class IntegrationTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
-        self.environment = patch.dict(os.environ, {"APP_DB_PATH": f"{self.directory.name}/app.db"})
+        self.environment = patch.dict(os.environ, {"APP_DB_PATH": f"{self.directory.name}/app.db", "OLLAMA_MODEL": ""})
         self.environment.start()
         self.builder_path = os.environ.pop("TASK_BUILDER_DB_PATH", None)
         seed_tasks()

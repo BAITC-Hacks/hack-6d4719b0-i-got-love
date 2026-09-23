@@ -4,13 +4,14 @@ import BuilderScreen from "./screens/BuilderScreen";
 import CatalogScreen from "./screens/CatalogScreen";
 import ProposalsScreen from "./screens/ProposalsScreen";
 import TeamsScreen from "./screens/TeamsScreen";
+import Icon from "./components/Icon";
 
 export type ScreenKey = "builder" | "catalog" | "teams" | "proposals";
-const navigation: { key: ScreenKey; label: string; symbol: string }[] = [
-  { key: "builder", label: "Конструктор", symbol: "✳" },
-  { key: "catalog", label: "Каталог задач", symbol: "▤" },
-  { key: "teams", label: "Команды", symbol: "◉" },
-  { key: "proposals", label: "Отклики", symbol: "↗" },
+const navigation: { key: ScreenKey; label: string }[] = [
+  { key: "builder", label: "Конструктор" },
+  { key: "catalog", label: "Каталог задач" },
+  { key: "teams", label: "Команды" },
+  { key: "proposals", label: "Отклики" },
 ];
 type TaskSummary = { id: number; title: string };
 
@@ -34,7 +35,7 @@ async function api<T>(path: string, options: { method?: string; body?: unknown; 
   if (!response.ok) throw new Error(typeof result?.detail === "string" ? result.detail : `Ошибка сервера: ${response.status}`);
   return result as T;
 }
-const message = (error: unknown) => error instanceof Error ? error.message : "Не удалось выполнить запрос";
+const message = (error: unknown) => error instanceof TypeError ? "Не удалось связаться с сервером. Проверьте подключение." : error instanceof Error ? error.message : "Не удалось выполнить запрос";
 
 function ProposalWorkspace({ task, teams, onRefreshTeams }: { task: TaskSummary; teams: Team[]; onRefreshTeams: () => void }) {
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -134,19 +135,20 @@ export default function App() {
       <nav aria-label="Главная навигация" className="main-nav">
         {navigation.map((item) => <a key={item.key} href={`#${item.key}`} aria-label={item.label} title={item.label}
           aria-current={screen === item.key ? "page" : undefined} className={`nav-link${screen === item.key ? " is-active" : ""}`}>
-          <span aria-hidden="true" className="nav-symbol">{item.symbol}</span>{item.label}
+          <span className="nav-symbol"><Icon name={item.key} /></span><span className="nav-label">{item.label}</span>
         </a>)}
       </nav>
-      <div className="sidebar-bottom"><div className="profile-avatar">Б</div><div className="profile-copy"><strong>Демо-пространство</strong><span>Бизнес и команды</span></div></div>
+      <div className="sidebar-story"><span className="sidebar-story-icon"><Icon name="builder" size={27} /></span><strong>Из задачи —<br />в результат.</strong><p>Превратите потребность бизнеса в следующий проект команды.</p><a href="#builder">В конструктор <Icon name="arrow" size={17} /></a></div>
+      <div className="sidebar-bottom"><div className="profile-avatar">Б</div><div className="profile-copy"><strong>Открытое пространство</strong><span>Бизнес + команды</span></div></div>
     </aside>
     <div className="main-column">
-      <header className="topbar"><div className="breadcrumbs"><span>Рабочее пространство</span><span aria-hidden="true">/</span><strong>{navigation.find((item) => item.key === screen)?.label}</strong></div>
-        <div className="topbar-actions"><span className="demo-badge"><span /> Демо-режим</span><div aria-label="Демо-профиль" className="top-avatar">Б</div></div>
+      <header className="topbar"><a className="mobile-brand" href="#catalog">lovelab<span>✳</span></a><div className="breadcrumbs"><span>Ваше пространство</span><span aria-hidden="true">/</span><strong>{navigation.find((item) => item.key === screen)?.label}</strong></div>
+        <div className="topbar-actions"><span className="demo-badge"><span /> Открыто для идей</span><div aria-label="Демо-профиль" className="top-avatar">Б</div></div>
       </header>
       <main id="main-content" tabIndex={-1} className="page-content">
         {screen === "builder" && <BuilderScreen initialTaskId={taskId} onOpenCatalog={() => navigate("catalog")}
           onRespond={(id) => navigate("proposals", id)} onTaskChange={(id) => navigate("builder", id)} onPublished={() => setVersion((value) => value + 1)} />}
-        {screen === "catalog" && <CatalogScreen onRespond={(id) => navigate("proposals", id)} onEdit={(id) => navigate("builder", id)} />}
+        {screen === "catalog" && <CatalogScreen onCreate={() => navigate("builder")} onRespond={(id) => navigate("proposals", id)} onEdit={(id) => navigate("builder", id)} />}
         {(screen === "teams" || screen === "proposals") && teamError && <div className="app-error" role="alert">{teamError}<button onClick={() => setTeamVersion((value) => value + 1)}>Повторить загрузку команд</button></div>}
         {screen === "teams" && (teamsLoading ? <p role="status">Загрузка команд…</p> : !teamError && <TeamsScreen teams={teams} />)}
         {screen === "proposals" && <>

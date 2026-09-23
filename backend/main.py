@@ -14,7 +14,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="HackAlem task catalog", lifespan=lifespan)
+app = FastAPI(title="Каталог задач Лавлаб", lifespan=lifespan)
 
 
 def catalog_item(row) -> dict:
@@ -31,14 +31,12 @@ def list_catalog(
     level: str | None = Query(None, pattern="^(draft|working|ready|priority)$"),
 ):
     query = "SELECT * FROM tasks WHERE status = 'published'"
-    parameters = []
-    if topic:
-        query += " AND LOWER(topic) = LOWER(?)"
-        parameters.append(topic)
     direction = "DESC" if sort == "score_desc" else "ASC"
     query += f" ORDER BY score {direction}, id ASC"
     with closing(connect()) as connection:
-        items = [catalog_item(row) for row in connection.execute(query, parameters)]
+        items = [catalog_item(row) for row in connection.execute(query)]
+    if topic:
+        items = [item for item in items if item["topic"].casefold() == topic.casefold()]
     if level:
         items = [item for item in items if item["level"] == level]
     return {"items": items, "total": len(items)}
@@ -51,5 +49,5 @@ def get_catalog_task(task_id: int):
             "SELECT * FROM tasks WHERE id = ? AND status = 'published'", (task_id,)
         ).fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail="Published task not found")
+        raise HTTPException(status_code=404, detail="Опубликованная задача не найдена")
     return catalog_item(row)

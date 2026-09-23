@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Icon from "../components/Icon";
 import type { Team } from "../data/teamProposals";
 
 interface TeamsScreenProps {
@@ -18,19 +19,20 @@ export default function TeamsScreen({ teams }: TeamsScreenProps) {
   );
 
   return (
-    <section>
+    <section className="teams-screen">
       <div className="section-heading">
         <div>
           <div className="eyebrow">СООБЩЕСТВО</div>
           <h1>Команды</h1>
-          <p className="section-description">Профили, интересы и технологии команд платформы.</p>
+          <p className="section-description">Разные навыки. Общая цель — сделать что-то стоящее. Найдите тех, кто превратит вашу задачу в решение.</p>
         </div>
-        <div className="heading-stat"><strong>{teams.length}</strong><span>профилей</span></div>
+        <div className="community-mark" aria-hidden="true">{teams.slice(0,3).map(team => <span key={team.id}>{team.name.slice(0,1)}</span>)}<Icon name="teams" size={24} /></div>
       </div>
 
+      <div className="community-stats"><div><Icon name="teams" /><strong>{teams.length}</strong><span>команд в сообществе</span></div><div><Icon name="builder" /><strong>{new Set(teams.flatMap(team => team.skills)).size}</strong><span>навыков для ваших задач</span></div><div><Icon name="trophy" /><strong>{teams.reduce((total, team) => total + team.points, 0)}</strong><span>баллов за результат</span></div></div>
       <div className="toolbar">
         <label className="search-field">
-          <span aria-hidden="true">⌕</span>
+          <Icon name="search" />
           <input
             aria-label="Поиск команды или навыка"
             onChange={(event) => setQuery(event.target.value)}
@@ -56,7 +58,7 @@ export default function TeamsScreen({ teams }: TeamsScreenProps) {
                     <span>{team.interests[0]}</span>
                   </div>
                   <div className="points-pill" title="Баллы за подтверждённый прогресс">
-                    <span aria-hidden="true">✦</span> {team.points}
+                    <Icon name="trophy" size={16} /> {team.points}
                   </div>
                 </div>
 
@@ -82,7 +84,7 @@ export default function TeamsScreen({ teams }: TeamsScreenProps) {
         </div>
       ) : (
         <div className="empty-state">
-          <span aria-hidden="true">⌕</span>
+          <Icon name="search" />
           <h2>Команды не найдены</h2>
           <p>Попробуйте изменить запрос.</p>
         </div>

@@ -1,4 +1,4 @@
-"""Task builder API. Only this server calls the optional external AI endpoint."""
+"""Task builder API with server-side external or local Ollama questions."""
 
 import json
 import os
@@ -35,14 +35,41 @@ FALLBACK_QUESTIONS = (
     {"field": "success_criteria", "text": "По каким признакам вы поймёте, что задача решена?"},
     {"field": "data", "text": "Какие данные вы готовы предоставить команде?"},
 )
-QUESTION_PROMPT = """Ты помогаешь бизнесу уточнить описание задачи для хакатона.
-Задай от 3 до 5 открытых, уместных уточняющих вопросов на русском языке.
-Не предполагай фактов, которых нет в описании. Не отвечай за пользователя.
-Каждый вопрос должен относиться к одному различному полю из списка:
-title, topic, need, users, data, constraints, expected_result,
-success_criteria, contact, interaction_format.
-Верни только JSON: {"questions":[{"field":"need","text":"..."}]}.
+QUESTION_PROMPT = """Ты интервьюируешь представителя бизнеса перед хакатоном.
+Задай ровно 3 коротких уточняющих вопроса на русском языке по его описанию.
+Каждый text — вопрос к человеку, начинается с вопросительного слова и заканчивается знаком ?.
+Спрашивай недостающие конкретные сведения, а не пересказывай уже известную проблему.
+Запрещено отвечать за человека, дописывать факты, утверждать наличие данных или обещать результаты.
+Уточняй только то, чего нет в описании. Если данные неизвестны, спроси, какие данные доступны.
+Выбери 3 разных поля из списка: need, users, data, constraints, expected_result,
+success_criteria, contact, interaction_format, title, topic.
+Смысл полей: need — потребность бизнеса; users — пользователи решения;
+data — доступные материалы; constraints — границы и ограничения;
+expected_result — конкретный результат работы команды (например, прототип);
+success_criteria — измеримые признаки успеха; contact — контакт представителя бизнеса;
+interaction_format — как бизнес будет консультировать студенческую команду, а не канал общения с клиентами;
+title — название задачи; topic — её отрасль.
+Пример формата (вопросы адаптируй к описанию пользователя):
+{"questions":[{"field":"need","text":"Какой этап процесса сейчас вызывает больше всего трудностей?"},
+{"field":"data","text":"Какие данные о процессе вы можете предоставить команде?"},
+{"field":"success_criteria","text":"Какое изменение показателей будет означать успех решения?"}]}
+Верни только JSON с questions, без ответов и пояснений.
 """
+QUESTION_SCHEMA = {
+    "type": "object",
+    "properties": {"questions": {
+        "type": "array", "minItems": 3, "maxItems": 5,
+        "items": {
+            "type": "object",
+            "properties": {
+                "field": {"type": "string", "enum": list(QUESTION_FIELDS)},
+                "text": {"type": "string", "minLength": 1, "pattern": r"\?$"},
+            },
+            "required": ["field", "text"], "additionalProperties": False,
+        },
+    }},
+    "required": ["questions"], "additionalProperties": False,
+}
 
 app = FastAPI(title="Task builder API")
 router = APIRouter()
@@ -121,7 +148,7 @@ def validate_questions(payload: object) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             raise ValueError("Некорректный вопрос")
         field, question = item.get("field"), item.get("text")
-        if not isinstance(field, str) or field not in QUESTION_FIELDS or field in fields or not isinstance(question, str) or not question.strip():
+        if not isinstance(field, str) or field not in QUESTION_FIELDS or field in fields or not isinstance(question, str) or not question.strip().endswith("?"):
             raise ValueError("Некорректное поле или текст вопроса")
         fields.add(field)
         result.append({"field": field, "text": question.strip()})
@@ -129,7 +156,7 @@ def validate_questions(payload: object) -> list[dict[str, str]]:
 
 
 def external_questions(description: str) -> list[dict[str, str]]:
-    url, key, model = (os.environ.get(name) for name in ("AI_API_URL", "AI_API_KEY", "AI_MODEL"))
+    url, key, model = (os.environ.get(name, "").strip() for name in ("AI_API_URL", "AI_API_KEY", "AI_MODEL"))
     if not all((url, key, model)):
         raise RuntimeError("AI API не настроен")
     body = {
@@ -152,20 +179,52 @@ def external_questions(description: str) -> list[dict[str, str]]:
     return validate_questions(json.loads(content))
 
 
+def ollama_questions(description: str) -> list[dict[str, str]]:
+    model = os.environ.get("OLLAMA_MODEL", "").strip()
+    if not model:
+        raise RuntimeError("Локальная модель не настроена")
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": QUESTION_PROMPT},
+            {"role": "user", "content": description},
+        ],
+        "stream": False,
+        "format": QUESTION_SCHEMA,
+        "options": {"temperature": 0, "num_predict": 700},
+    }
+    request = Request(
+        f"{base_url}/api/chat",
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=60) as response:
+        data = json.load(response)
+    return validate_questions(json.loads(data["message"]["content"]))
+
+
 @router.post("/api/task-builder/questions")
 def questions(request: DescriptionInput) -> dict:
     description = request.description.strip()
     if not description:
         raise HTTPException(status_code=422, detail="Введите описание")
+    external_configured = all(os.environ.get(name, "").strip() for name in ("AI_API_URL", "AI_API_KEY", "AI_MODEL"))
+    source = "ollama" if not external_configured and os.environ.get("OLLAMA_MODEL", "").strip() else "external"
     try:
-        return {"questions": external_questions(description), "source": "external", "warning": None}
-    except (RuntimeError, ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError,
-            HTTPError, URLError, TimeoutError, OSError):
-        return {
-            "questions": list(FALLBACK_QUESTIONS),
-            "source": "local",
-            "warning": "AI API недоступен или вернул некорректный ответ. Показаны локальные вопросы.",
-        }
+        result = ollama_questions(description) if source == "ollama" else external_questions(description)
+        return {"questions": result, "source": source, "warning": None, "fallback_reason": None}
+    except RuntimeError:
+        reason = "not_configured"
+        warning = "ИИ пока не подключён. Сейчас доступны стандартные вопросы — вы можете продолжить работу."
+    except (HTTPError, URLError, TimeoutError, OSError):
+        reason = "unavailable"
+        warning = "Не удалось связаться с ИИ. Показаны стандартные вопросы — попробуйте получить уточняющие вопросы позже."
+    except (ValueError, KeyError, IndexError, TypeError):
+        reason = "invalid_response"
+        warning = "ИИ вернул некорректный ответ. Показаны стандартные вопросы — вы можете продолжить работу."
+    return {"questions": list(FALLBACK_QUESTIONS), "source": "local", "warning": warning, "fallback_reason": reason}
 
 
 @router.post("/api/task-builder/drafts", status_code=201)

@@ -1,11 +1,14 @@
 """Focused checks for the builder flow and AI fallback."""
 
+import io
+import json
 import os
 import sqlite3
 import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError, URLError
 
 from fastapi import HTTPException
 
@@ -15,7 +18,10 @@ from task_builder import server
 class BuilderTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
-        self.db_setting = patch.dict(os.environ, {"TASK_BUILDER_DB_PATH": f"{self.directory.name}/tasks.db"})
+        self.db_setting = patch.dict(os.environ, {
+            "TASK_BUILDER_DB_PATH": f"{self.directory.name}/tasks.db",
+            "AI_API_URL": "", "AI_API_KEY": "", "AI_MODEL": "", "OLLAMA_MODEL": "",
+        })
         self.db_setting.start()
 
     def tearDown(self):
@@ -83,6 +89,90 @@ class BuilderTests(unittest.TestCase):
         shared.init_db.assert_called_once_with()
         shared.connect.assert_called_once_with()
         connection.close()
+
+
+class AIProviderTests(unittest.TestCase):
+    def setUp(self):
+        self.environment = patch.dict(os.environ, {}, clear=True)
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+        self.request = server.DescriptionInput(description="Пекарня теряет заказы")
+        self.generated = {"questions": [
+            {"field": "need", "text": "Какие заказы теряются?"},
+            {"field": "users", "text": "Кто принимает заказы?"},
+            {"field": "data", "text": "Какая история заказов доступна?"},
+        ]}
+
+    def test_ollama_request_uses_schema_and_returns_model_questions(self):
+        os.environ.update(OLLAMA_MODEL="test-model", OLLAMA_BASE_URL="http://localhost:11434/")
+        response = io.BytesIO(json.dumps({"message": {"content": json.dumps(self.generated)}}).encode())
+        with patch.object(server, "urlopen", return_value=response) as send:
+            result = server.questions(self.request)
+        self.assertEqual(result, {"questions": self.generated["questions"], "source": "ollama", "warning": None, "fallback_reason": None})
+        request = send.call_args.args[0]
+        self.assertEqual(request.full_url, "http://localhost:11434/api/chat")
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(send.call_args.kwargs["timeout"], 60)
+        body = json.loads(request.data)
+        self.assertEqual(body["model"], "test-model")
+        self.assertFalse(body["stream"])
+        self.assertEqual(body["options"], {"temperature": 0, "num_predict": 700})
+        schema = body["format"]["properties"]["questions"]
+        self.assertEqual((schema["minItems"], schema["maxItems"]), (3, 5))
+        self.assertEqual(schema["items"]["properties"]["field"]["enum"], list(server.QUESTION_FIELDS))
+        self.assertEqual(body["messages"][1]["content"], self.request.description)
+        self.assertIsNone(request.get_header("Authorization"))
+
+    def test_complete_external_configuration_has_priority(self):
+        os.environ.update(AI_API_URL="https://provider.test/chat", AI_API_KEY="test-secret", AI_MODEL="external-model", OLLAMA_MODEL="test-model")
+        response = io.BytesIO(json.dumps({"choices": [{"message": {"content": json.dumps(self.generated)}}]}).encode())
+        with patch.object(server, "urlopen", return_value=response) as send:
+            result = server.questions(self.request)
+        self.assertEqual(result["source"], "external")
+        self.assertIsNone(result["fallback_reason"])
+        request = send.call_args.args[0]
+        self.assertEqual(request.full_url, "https://provider.test/chat")
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-secret")
+        self.assertEqual(json.loads(request.data)["model"], "external-model")
+        self.assertEqual(send.call_args.kwargs["timeout"], 12)
+
+    def test_no_or_partial_configuration_does_not_make_network_call(self):
+        for configuration in ({}, {"AI_API_KEY": "test-secret"}):
+            with self.subTest(configuration=bool(configuration)), patch.dict(os.environ, configuration), patch.object(server, "urlopen") as send:
+                result = server.questions(self.request)
+                self.assertEqual(result["source"], "local")
+                self.assertEqual(result["fallback_reason"], "not_configured")
+                self.assertIn("не подключён", result["warning"])
+                self.assertNotIn("test-secret", result["warning"])
+                send.assert_not_called()
+
+    def test_provider_connection_errors_are_distinguished(self):
+        os.environ["OLLAMA_MODEL"] = "test-model"
+        failures = (URLError("secret-network-details"), TimeoutError("secret-timeout"), HTTPError("secret-url", 404, "Model unavailable", {}, None))
+        for failure in failures:
+            with self.subTest(error=type(failure).__name__), patch.object(server, "urlopen", side_effect=failure):
+                result = server.questions(self.request)
+            self.assertEqual(result["source"], "local")
+            self.assertEqual(result["fallback_reason"], "unavailable")
+            self.assertEqual(result["questions"], list(server.FALLBACK_QUESTIONS))
+            self.assertNotIn("secret", result["warning"])
+
+    def test_invalid_provider_payloads_return_explicit_fallback(self):
+        os.environ["OLLAMA_MODEL"] = "test-model"
+        duplicate_fields = {"questions": [self.generated["questions"][0]] * 3}
+        invented_answer = {"questions": [
+            *self.generated["questions"][:2],
+            {"field": "data", "text": "Доступна история заказов"},
+        ]}
+        responses = (b"not-json", b"{}", b'{"message":{"content":"not-json"}}',
+                     json.dumps({"message": {"content": json.dumps(duplicate_fields)}}).encode(),
+                     json.dumps({"message": {"content": json.dumps(invented_answer)}}).encode())
+        for payload in responses:
+            with self.subTest(payload=payload), patch.object(server, "urlopen", return_value=io.BytesIO(payload)):
+                result = server.questions(self.request)
+            self.assertEqual(result["fallback_reason"], "invalid_response")
+            self.assertEqual(result["source"], "local")
+            self.assertIn("некорректный", result["warning"])
 
 
 if __name__ == "__main__":

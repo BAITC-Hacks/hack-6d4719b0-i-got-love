@@ -1,67 +1,82 @@
-# Lovelab API
+# API Lovelab
 
-Entry point: `backend.integration:app`. All routes are same-origin `/api` endpoints.
-Interactive OpenAPI documentation is available at `/docs` while the server runs.
-The demo has no authentication or per-user ownership; all participants share one workspace.
+Точка входа: `backend.integration:app`. Все маршруты `/api` работают на том же адресе, что и интерфейс.
+Интерактивная документация OpenAPI доступна по пути `/docs`, пока сервер запущен.
+В демоверсии нет авторизации и разделения данных по владельцам: все участники работают в общем пространстве.
 
-## Models
+## Модели данных
 
-`Task` contains `id`, `title`, `topic`, `context`, `need`, `users`, `data`,
+`Task` содержит `id`, `title`, `topic`, `context`, `need`, `users`, `data`,
 `constraints`, `expected_result`, `success_criteria`, `contact`,
-`interaction_format`, `status` (`draft` / `published`) and `score` (0–100).
+`interaction_format`, `status` (`draft` / `published`) и `score` (0–100).
 
-Builder responses include `confirmed_at`, `level`, `score_breakdown`,
-`missing_fields` and `rating_preview`. The preview uses the same weights without
-requiring confirmation; it is not the confirmed score. Catalog responses omit
-`confirmed_at` and `rating_preview` but include the other rating fields.
+Ответы конструктора включают `confirmed_at`, `level`, `score_breakdown`,
+`missing_fields` и `rating_preview`. Предварительная оценка использует те же веса,
+но не требует подтверждения и не считается подтверждённым рейтингом.
+Ответы каталога не содержат `confirmed_at` и `rating_preview`, но включают остальные поля рейтинга.
 
 `Team`: `id`, `name`, `interests`, `skills`, `technologies`, `points`.
-The three descriptive collections are arrays of strings in API responses.
+Поля `interests`, `skills` и `technologies` передаются в ответах API как массивы строк.
 
 `Proposal`: `id`, `task_id`, `team_id`, `idea`, `plan`, `duration`,
 `prototype_url`, `decision` (`pending` / `selected` / `rejected`),
-`progress_confirmed` (boolean).
+`progress_confirmed` (логическое значение).
 
-## Builder
+## Конструктор задач
 
-| Method | Route | Body / behavior |
+| Метод | Маршрут | Тело запроса и поведение |
 | --- | --- | --- |
-| POST | `/api/task-builder/questions` | `{description}` → `{questions, source, warning}` |
-| POST | `/api/task-builder/drafts` | `{description, answers: {field: text}}` → new Task; HTTP 201 |
-| GET | `/api/task-builder/tasks` | `{items, total}`, newest first; optional `status=draft` or `published` |
-| GET | `/api/task-builder/tasks/{id}` | Full Task including rating preview |
-| PUT | `/api/task-builder/tasks/{id}` | Full text-field card, draft only; resets score and confirmation |
-| POST | `/api/task-builder/tasks/{id}/confirm` | Confirms current draft; requires nonblank title; recalculates score |
-| POST | `/api/task-builder/tasks/{id}/publish` | Requires confirmation; repeated publish is idempotent |
-| PUT | `/api/task-builder/tasks/{id}/confirmed` | Full, explicitly approved text-field card, published only; atomically recalculates score |
+| POST | `/api/task-builder/questions` | `{description}` → `{questions, source, warning, fallback_reason}` |
+| POST | `/api/task-builder/drafts` | `{description, answers: {field: text}}` → новая задача `Task`; HTTP 201 |
+| GET | `/api/task-builder/tasks` | `{items, total}`, сначала новые; необязательный фильтр `status=draft` или `published` |
+| GET | `/api/task-builder/tasks/{id}` | Полная задача `Task`, включая предварительную оценку |
+| PUT | `/api/task-builder/tasks/{id}` | Все текстовые поля карточки; только для черновика; сбрасывает рейтинг и подтверждение |
+| POST | `/api/task-builder/tasks/{id}/confirm` | Подтверждает текущий черновик; требует непустого названия; пересчитывает рейтинг |
+| POST | `/api/task-builder/tasks/{id}/publish` | Требует подтверждения; повторная публикация не меняет результат |
+| PUT | `/api/task-builder/tasks/{id}/confirmed` | Все текстовые поля карточки, явно одобренные бизнесом; только для опубликованной задачи; атомарно пересчитывает рейтинг |
 
-The full card body contains all eleven Task text fields; omitted fields default
-to empty strings. `id`, `status`, `score` and timestamps are controlled by the
-server. Published edits preserve status and linked proposals. Blank titles at confirmation
-return HTTP 422 without changing the saved card. Using a draft-only action on
-a published card (or the reverse) returns HTTP 409.
+Тело полной карточки содержит все одиннадцать текстовых полей `Task`;
+пропущенные поля по умолчанию заменяются пустыми строками.
+Поля `id`, `status`, `score` и временные отметки задаёт сервер.
+Изменение опубликованной задачи сохраняет её статус и связанные отклики.
+Пустое название при подтверждении возвращает HTTP 422 без изменения сохранённой карточки.
+Действие для черновика, применённое к опубликованной карточке, или обратная ситуация возвращают HTTP 409.
 
-Questions contain distinct `field` names and nonempty `text` values. The server
-validates 3–5 questions and falls back to five local questions if the external
-provider is unavailable or malformed. No answers are generated by AI.
+Вопросы содержат уникальные значения `field` и текст вопроса, заканчивающийся знаком `?`.
+Сервер проверяет, что получено от 3 до 5 вопросов.
+Если заданы все параметры `AI_API_URL`, `AI_API_KEY`, `AI_MODEL`, используется внешний поставщик AI.
+Иначе параметр `OLLAMA_MODEL` включает локальную модель Ollama
+(`OLLAMA_BASE_URL`, по умолчанию `http://127.0.0.1:11434`).
+Для Ollama используются схема JSON, ответ без потоковой передачи и тайм-аут 60 секунд,
+который учитывает время первоначального запуска модели.
+Значение `source`: `external`, `ollama` или `local` (резервные шаблонные вопросы).
+При успехе `fallback_reason` равен `null`; при переходе к шаблонам —
+`not_configured`, `unavailable` или `invalid_response`.
+Соответствующее предупреждение в интерфейсе объясняет причину.
+AI не генерирует ответы за пользователя. На экране вопросов можно повторить генерацию;
+ответы для совпадающих полей сохраняются.
 
-## Catalog
+## Каталог
 
 - `GET /api/catalog?sort=score_desc&topic=...&level=...` → `{items, total}`.
-- `GET /api/catalog/{id}` → one published Task, or HTTP 404.
+- `GET /api/catalog/{id}` → одна опубликованная задача `Task` или HTTP 404.
 
-`sort`: `score_desc` (default) or `score_asc`. Equal scores are ordered by ID.
-`topic`: case-insensitive exact match. `level`: `draft`, `working`, `ready`, or
-`priority`. Invalid sort / level values return HTTP 422. Omitted filters include
-all published tasks; no minimum score applies. The current frontend fetches
-the complete catalog and performs its search and filtering locally.
+`sort`: `score_desc` (по умолчанию) или `score_asc`.
+При одинаковом рейтинге порядок определяется идентификатором.
+`topic`: точное совпадение без учёта регистра.
+`level`: `draft`, `working`, `ready` или `priority`.
+Недопустимые значения сортировки или уровня возвращают HTTP 422.
+Без фильтров возвращаются все опубликованные задачи; минимального порога рейтинга нет.
+Текущий интерфейс загружает полный каталог и выполняет поиск и фильтрацию в браузере.
 
-Weights: context 10, need 10, data 20, expected_result 15, success_criteria 15,
-constraints 10, users 10, contact 5, interaction_format 5. Whitespace-only fields
-earn zero. Title and topic are not scored. Only confirmed cards earn points.
-Levels: 0–39 draft, 40–69 working, 70–89 ready, 90–100 priority.
+Веса полей: `context` — 10, `need` — 10, `data` — 20, `expected_result` — 15,
+`success_criteria` — 15, `constraints` — 10, `users` — 10, `contact` — 5,
+`interaction_format` — 5. Поля, содержащие только пробелы, не дают баллов.
+Название и тема не оцениваются. Баллы начисляются только подтверждённым карточкам.
+Уровни: 0–39 — черновик (`draft`), 40–69 — рабочая (`working`),
+70–89 — готовая (`ready`), 90–100 — приоритетная (`priority`).
 
-Example rating fragment:
+Пример фрагмента ответа с рейтингом:
 
 ```json
 {
@@ -80,37 +95,46 @@ Example rating fragment:
 }
 ```
 
-## Teams and proposals
+## Команды и отклики
 
-| Method | Route | Body / behavior |
+| Метод | Маршрут | Тело запроса и поведение |
 | --- | --- | --- |
-| GET | `/api/teams` | Array of profiles, including current points |
-| GET | `/api/proposals?task_id=7` | Array, newest first; omit task_id for all proposals |
+| GET | `/api/teams` | Массив профилей с текущим количеством баллов |
+| GET | `/api/proposals?task_id=7` | Массив откликов, сначала новые; без `task_id` возвращаются все отклики |
 | POST | `/api/proposals` | `{task_id, team_id, idea, plan, duration, prototype_url}`; HTTP 201 |
-| PATCH | `/api/proposals/{id}/decision` | `{decision: "selected"}` or `{decision: "rejected"}` |
-| POST | `/api/proposals/{id}/progress` | Confirms the selected proposal's stage and awards +10 once |
+| PATCH | `/api/proposals/{id}/decision` | `{decision: "selected"}` или `{decision: "rejected"}` |
+| POST | `/api/proposals/{id}/progress` | Подтверждает этап выбранной команды и однократно начисляет 10 баллов |
 
-All proposal text fields must be nonblank; the prototype URL must use HTTP(S)
-and have a host. The team and published task must exist. No limit on proposals
-or selected teams is applied; low task ratings do not block submission.
+При создании отклика все текстовые поля должны быть непустыми.
+Ссылка на прототип должна использовать HTTP(S) и содержать имя сервера.
+Команда и опубликованная задача должны существовать.
+Количество откликов и выбранных команд не ограничено;
+низкий рейтинг задачи не препятствует подаче предложения.
 
-A pending decision can become selected or rejected. Repeating the same decision
-before stage confirmation is idempotent; changing a final decision returns
-HTTP 409. Progress for a pending or rejected proposal returns HTTP 409.
-Repeating progress confirmation returns the confirmed proposal without another
-award. A confirmed stage locks the decision. Awarding points and marking the
-stage use one `BEGIN IMMEDIATE` SQLite transaction, including concurrent calls.
-Task scores are not changed by team progress.
+В подготовленных демонстрационных откликах поле `prototype_url` намеренно пустое:
+для них интерфейс показывает «Прототип не добавлен».
+При подаче нового отклика ссылка на прототип обязательна.
 
-## Storage and runtime
+Отклик в ожидании решения можно выбрать или отклонить.
+Повторение того же решения до подтверждения этапа не меняет результат;
+попытка изменить окончательное решение возвращает HTTP 409.
+Подтверждение прогресса ожидающего или отклонённого отклика также возвращает HTTP 409.
+Повторное подтверждение этапа возвращает подтверждённый отклик без повторного начисления баллов.
+После подтверждения этапа решение нельзя изменить.
+Начисление баллов и отметка этапа выполняются в одной транзакции SQLite
+`BEGIN IMMEDIATE`, в том числе при одновременных запросах.
+Прогресс команды не изменяет рейтинг задачи.
 
-`backend.db.init_db()` creates the schema; `backend.db.connect()` enables foreign
-keys. `APP_DB_PATH` selects the database (default `backend/app.db`). For the shared
-application, leave the legacy standalone `TASK_BUILDER_DB_PATH` unset.
+## Хранение данных и запуск
 
-`GET /api/health` checks database availability and returns `{"status":"ok"}`.
-The integrated server serves the built frontend at `/` and its assets at
-`/assets`. Build before starting the server. Unknown API endpoints return 404.
+`backend.db.init_db()` создаёт схему; `backend.db.connect()` включает проверку внешних ключей.
+Параметр `APP_DB_PATH` задаёт путь к базе данных (по умолчанию `backend/app.db`).
+При запуске общего приложения не задавайте прежний параметр автономного конструктора `TASK_BUILDER_DB_PATH`.
 
-Run `python -m unittest discover -v` with the development dependencies installed
-to exercise the HTTP contracts, recalculation, invalid transitions and races.
+`GET /api/health` проверяет доступность базы данных и возвращает `{"status":"ok"}`.
+Общий сервер раздаёт собранный интерфейс по пути `/`, а его ресурсы — по пути `/assets`.
+Перед запуском сервера выполните сборку. Неизвестные маршруты API возвращают 404.
+
+После установки зависимостей для разработки запустите `python -m unittest discover -v`:
+тесты проверяют HTTP-контракты, пересчёт рейтинга, недопустимые переходы состояний
+и одновременные запросы.
