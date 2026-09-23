@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import {
   DEMO_TASK_ID,
-  INITIAL_DEMO_STATE,
+  DEMO_TASK_TITLE,
   PROGRESS_POINTS,
-  type DemoState,
+  type NewProposal,
   type Proposal,
   type ProposalDecision,
+  type Team,
 } from "./data/teamProposals";
 import BuilderScreen from "./screens/BuilderScreen";
 import CatalogScreen from "./screens/CatalogScreen";
@@ -28,77 +29,109 @@ const screenTitles: Record<ScreenKey, string> = {
   proposals: "Предложения команд",
 };
 
-const STORAGE_KEY = "lovelab-team-proposals-demo-v2";
-
-function loadDemoState(): DemoState {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed: unknown = JSON.parse(stored);
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "teams" in parsed &&
-        "proposals" in parsed &&
-        Array.isArray(parsed.teams) &&
-        Array.isArray(parsed.proposals)
-      ) {
-        return parsed as DemoState;
-      }
-    }
-  } catch {
-    // Fall back to the seed data if local demo storage is unavailable or invalid.
+async function api<T>(
+  path: string,
+  options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
+): Promise<T> {
+  const response = await fetch(path, {
+    method: options.method,
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: options.signal,
+  });
+  const result: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail =
+      typeof result === "object" && result !== null && "detail" in result && typeof result.detail === "string"
+        ? result.detail
+        : `Ошибка сервера: ${response.status}`;
+    throw new Error(detail);
   }
+  return result as T;
+}
 
-  return INITIAL_DEMO_STATE;
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Не удалось выполнить запрос";
 }
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("catalog");
-  const [demoState, setDemoState] = useState<DemoState>(loadDemoState);
+  const [selectedTaskId, setSelectedTaskId] = useState(DEMO_TASK_ID);
+  const [selectedTaskTitle, setSelectedTaskTitle] = useState(DEMO_TASK_TITLE);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [reloadVersion, setReloadVersion] = useState(0);
 
   useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setLoadError("");
+    setProposals([]);
+
+    Promise.all([
+      api<Team[]>("/api/teams", { signal: controller.signal }),
+      api<Proposal[]>(`/api/proposals?task_id=${selectedTaskId}`, { signal: controller.signal }),
+      api<{ id: number; title: string }>(`/api/catalog/${selectedTaskId}`, { signal: controller.signal }),
+    ])
+      .then(([loadedTeams, loadedProposals, task]) => {
+        setTeams(loadedTeams);
+        setProposals(loadedProposals);
+        setSelectedTaskTitle(task.title || `Задача #${task.id}`);
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setLoadError(errorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [selectedTaskId, reloadVersion]);
+
+  async function addProposal(proposal: NewProposal): Promise<void> {
+    setActionError("");
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(demoState));
-    } catch {
-      // The demo remains usable for this session when browser storage is unavailable.
+      const created = await api<Proposal>("/api/proposals", { method: "POST", body: proposal });
+      setProposals((current) => [created, ...current]);
+    } catch (error) {
+      setActionError(errorMessage(error));
+      throw error;
     }
-  }, [demoState]);
-
-  function addProposal(proposal: Proposal) {
-    setDemoState((current) => ({
-      ...current,
-      proposals: [proposal, ...current.proposals],
-    }));
   }
 
-  function decideProposal(proposalId: number, decision: Exclude<ProposalDecision, "pending">) {
-    setDemoState((current) => ({
-      ...current,
-      proposals: current.proposals.map((proposal) =>
-        proposal.id === proposalId && proposal.decision === "pending"
-          ? { ...proposal, decision }
-          : proposal,
-      ),
-    }));
+  async function decideProposal(proposalId: number, decision: Exclude<ProposalDecision, "pending">) {
+    setActionError("");
+    try {
+      const updated = await api<Proposal>(`/api/proposals/${proposalId}/decision`, {
+        method: "PATCH",
+        body: { decision },
+      });
+      setProposals((current) => current.map((proposal) => (proposal.id === proposalId ? updated : proposal)));
+    } catch (error) {
+      setActionError(errorMessage(error));
+    }
   }
 
-  function confirmProgress(proposalId: number) {
-    setDemoState((current) => {
-      const proposal = current.proposals.find((item) => item.id === proposalId);
-      if (!proposal || proposal.decision !== "selected" || proposal.progress_confirmed) {
-        return current;
-      }
+  async function confirmProgress(proposalId: number) {
+    setActionError("");
+    try {
+      const updated = await api<Proposal>(`/api/proposals/${proposalId}/progress`, { method: "POST" });
+      setProposals((current) => current.map((proposal) => (proposal.id === proposalId ? updated : proposal)));
+      const loadedTeams = await api<Team[]>("/api/teams");
+      setTeams(loadedTeams);
+    } catch (error) {
+      setActionError(errorMessage(error));
+    }
+  }
 
-      return {
-        teams: current.teams.map((team) =>
-          team.id === proposal.team_id ? { ...team, points: team.points + PROGRESS_POINTS } : team,
-        ),
-        proposals: current.proposals.map((item) =>
-          item.id === proposalId ? { ...item, progress_confirmed: true } : item,
-        ),
-      };
-    });
+  function openProposals(taskId: number) {
+    setSelectedTaskId(taskId);
+    setActiveScreen("proposals");
   }
 
   return (
@@ -155,17 +188,28 @@ export default function App() {
         </header>
 
         <main className="page-content">
+          {loadError && (
+            <div className="app-error" role="alert">
+              <span>{loadError}. Проверьте, что API запущен и демо-данные подготовлены.</span>
+              <button onClick={() => setReloadVersion((version) => version + 1)} type="button">Повторить</button>
+            </div>
+          )}
+          {actionError && <p className="app-error app-error--action" role="alert">{actionError}</p>}
           {activeScreen === "builder" && <BuilderScreen />}
-          {activeScreen === "catalog" && <CatalogScreen />}
-          {activeScreen === "teams" && <TeamsScreen teams={demoState.teams} />}
+          {activeScreen === "catalog" && <CatalogScreen onRespond={openProposals} />}
+          {activeScreen === "teams" && (loading ? <p>Загрузка команд…</p> : <TeamsScreen teams={teams} />)}
           {activeScreen === "proposals" && (
-            <ProposalsScreen
-              teams={demoState.teams}
-              proposals={demoState.proposals.filter((proposal) => proposal.task_id === DEMO_TASK_ID)}
-              onAddProposal={addProposal}
-              onConfirmProgress={confirmProgress}
-              onDecideProposal={decideProposal}
-            />
+            loading ? <p>Загрузка команд и откликов…</p> : (
+              <ProposalsScreen
+                teams={teams}
+                proposals={proposals}
+                taskId={selectedTaskId}
+                taskTitle={selectedTaskTitle}
+                onAddProposal={addProposal}
+                onConfirmProgress={confirmProgress}
+                onDecideProposal={decideProposal}
+              />
+            )
           )}
         </main>
       </div>

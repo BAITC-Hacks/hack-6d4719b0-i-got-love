@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from "react";
 import {
-  DEMO_TASK_ID,
-  DEMO_TASK_TITLE,
   PROGRESS_POINTS,
+  type NewProposal,
   type Proposal,
   type ProposalDecision,
   type Team,
@@ -11,7 +10,9 @@ import {
 interface ProposalsScreenProps {
   teams: Team[];
   proposals: Proposal[];
-  onAddProposal: (proposal: Proposal) => void;
+  taskId: number;
+  taskTitle: string;
+  onAddProposal: (proposal: NewProposal) => Promise<void>;
   onConfirmProgress: (proposalId: number) => void;
   onDecideProposal: (proposalId: number, decision: Exclude<ProposalDecision, "pending">) => void;
 }
@@ -34,6 +35,8 @@ const decisionLabels: Record<ProposalDecision, string> = {
 export default function ProposalsScreen({
   teams,
   proposals,
+  taskId,
+  taskTitle,
   onAddProposal,
   onConfirmProgress,
   onDecideProposal,
@@ -51,27 +54,28 @@ export default function ProposalsScreen({
   const selectedCount = proposals.filter((proposal) => proposal.decision === "selected").length;
   const rejectedCount = proposals.filter((proposal) => proposal.decision === "rejected").length;
 
-  function submitProposal(event: FormEvent<HTMLFormElement>) {
+  async function submitProposal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!teamId) return;
 
-    onAddProposal({
-      id: Date.now(),
-      task_id: DEMO_TASK_ID,
-      team_id: teamId,
-      idea: idea.trim(),
-      plan: plan.trim(),
-      duration: duration.trim(),
-      prototype_url: prototypeUrl.trim(),
-      decision: "pending",
-      progress_confirmed: false,
-    });
-    setIdea("");
-    setPlan("");
-    setDuration("");
-    setPrototypeUrl("");
-    setFormOpen(false);
-    setFilter("all");
+    try {
+      await onAddProposal({
+        task_id: taskId,
+        team_id: teamId,
+        idea: idea.trim(),
+        plan: plan.trim(),
+        duration: duration.trim(),
+        prototype_url: prototypeUrl.trim(),
+      });
+      setIdea("");
+      setPlan("");
+      setDuration("");
+      setPrototypeUrl("");
+      setFormOpen(false);
+      setFilter("all");
+    } catch {
+      // The app-level error message keeps the form open so the proposal can be retried.
+    }
   }
 
   return (
@@ -91,13 +95,13 @@ export default function ProposalsScreen({
         <div className="task-summary-icon" aria-hidden="true">▤</div>
         <div>
           <span className="task-summary-label">ОПУБЛИКОВАННАЯ ЗАДАЧА</span>
-          <h2>{DEMO_TASK_TITLE}</h2>
+          <h2>{taskTitle}</h2>
         </div>
         <span className="status-pill status-pill--published">Опубликована</span>
       </article>
 
       {formOpen && (
-        <form className="proposal-form" onSubmit={submitProposal}>
+        <form className="proposal-form" onSubmit={(event) => void submitProposal(event)}>
           <div className="form-heading">
             <div>
               <h2>Новый отклик</h2>

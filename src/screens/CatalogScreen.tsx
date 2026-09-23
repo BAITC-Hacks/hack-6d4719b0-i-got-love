@@ -1,10 +1,5 @@
-export default function CatalogScreen() {
-  return (
-    <section className="placeholder-screen">
-      <div className="eyebrow">ОТКРЫТЫЕ ВОЗМОЖНОСТИ</div>
-      <h1>Найдите задачу для своей команды</h1>
-      <p>Каталог и рейтинг подключаются в рамках участника 2.</p>
-      <div className="placeholder-card">Каталог задач появится здесь</div>
-    </section>
-  );
+import { Catalog } from "../../frontend/src/Catalog";
+
+export default function CatalogScreen({ onRespond }: { onRespond: (taskId: number) => void }) {
+  return <Catalog onRespond={onRespond} />;
 }
